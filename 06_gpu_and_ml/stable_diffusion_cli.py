@@ -113,14 +113,30 @@ stub.image = image
 # It sends the PIL image back to our CLI where we save the resulting image in a local file.
 
 
+def _init_cuda():
+    import torch
+
+    time_cuda_startup = time.time()
+    torch.zeros((2, 2)).cuda()
+    print(f"initializing cuda => {time.time() - time_cuda_startup:.3f}s")
+
+
 class StableDiffusion:
     def __enter__(self):
+        start = time.time()
         import diffusers
         import torch
+        import threading
+
+        print(f"imports => {time.time() - start:.3f}s")
 
         torch.backends.cudnn.benchmark = True
         torch.backends.cuda.matmul.allow_tf32 = True
 
+        T = threading.Thread(target=_init_cuda)
+        T.start()
+
+        time_load_pipe = time.time()
         scheduler = diffusers.DPMSolverMultistepScheduler.from_pretrained(
             cache_path,
             subfolder="scheduler",
@@ -131,16 +147,27 @@ class StableDiffusion:
             solver_type="midpoint",
             denoise_final=True,  # important if steps are <= 10
         )
-        self.pipe = diffusers.StableDiffusionPipeline.from_pretrained(cache_path, scheduler=scheduler).to("cuda")
-        self.pipe.enable_xformers_memory_efficient_attention()
+        self.pipe = diffusers.StableDiffusionPipeline.from_pretrained(cache_path, scheduler=scheduler)
+        print(f"load pipe => {time.time() - time_load_pipe:.3f}s")
 
-    @stub.function(gpu="A10g")
+        time_to_cuda = time.time()
+        T.join()
+        self.pipe.to("cuda")
+        print(f"to cuda => {time.time() - time_to_cuda:.3f}s")
+
+        self.pipe.enable_xformers_memory_efficient_attention()
+        print(f"total startup => {time.time() - start:.3f}s")
+
+    @stub.function(gpu=modal.gpu.A10G())
     def run_inference(self, prompt: str, steps: int = 20, batch_size: int = 4) -> list[bytes]:
         import torch
 
+        start = time.time()
         with torch.inference_mode():
             with torch.autocast("cuda"):
                 images = self.pipe([prompt] * batch_size, num_inference_steps=steps, guidance_scale=7.0).images
+        
+        print(f"inference => {time.time() - start:.3f}s")
 
         # Convert to PNG bytes
         image_output = []
