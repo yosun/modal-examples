@@ -128,9 +128,13 @@ class StableDiffusion:
         import torch
         import threading
 
+        os.environ["DISABLE_TELEMETRY"] = "YES"
+
         print(f"imports => {time.time() - start:.3f}s")
 
         torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.benchmark_limit = 1
+        torch.backends.cudnn.allow_tf32 = True
         torch.backends.cuda.matmul.allow_tf32 = True
 
         T = threading.Thread(target=_init_cuda)
@@ -156,6 +160,13 @@ class StableDiffusion:
         print(f"to cuda => {time.time() - time_to_cuda:.3f}s")
 
         self.pipe.enable_xformers_memory_efficient_attention()
+
+        start = time.time()
+        with torch.inference_mode():
+            self.pipe("", num_inference_steps=1, guidance_scale=7.0)
+        
+        print(f"cudnn optimizer step => {time.time() - start:.3f}s")
+
         print(f"total startup => {time.time() - start:.3f}s")
 
     @stub.function(gpu=modal.gpu.A10G())
@@ -163,11 +174,14 @@ class StableDiffusion:
         import torch
 
         start = time.time()
+        # with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA]) as prof:
         with torch.inference_mode():
-            with torch.autocast("cuda"):
-                images = self.pipe([prompt] * batch_size, num_inference_steps=steps, guidance_scale=7.0).images
+            images = self.pipe([prompt] * batch_size, num_inference_steps=steps, guidance_scale=7.0).images
         
         print(f"inference => {time.time() - start:.3f}s")
+
+        # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+
 
         # Convert to PNG bytes
         image_output = []
