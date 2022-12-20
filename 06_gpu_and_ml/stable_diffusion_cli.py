@@ -161,11 +161,10 @@ class StableDiffusion:
 
         self.pipe.enable_xformers_memory_efficient_attention()
 
-        start = time.time()
+        time_cudnn_optimizer = time.time()
         with torch.inference_mode():
             self.pipe("", num_inference_steps=1, guidance_scale=7.0)
-        
-        print(f"cudnn optimizer step => {time.time() - start:.3f}s")
+        print(f"cudnn optimizer step => {time.time() - time_cudnn_optimizer:.3f}s")
 
         print(f"total startup => {time.time() - start:.3f}s")
 
