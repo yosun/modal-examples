@@ -78,6 +78,38 @@ def download_models():
     pipe.save_pretrained(cache_path, safe_serialization=True)
 
 
+def compile_ait_models():
+    import subprocess
+
+    print(subprocess.run("nvidia-smi", check=True))
+
+    hugging_face_token = os.environ["HUGGINGFACE_TOKEN"]
+
+    cmd = f"python examples/05_stable_diffusion/compile.py --token {hugging_face_token}".split(" ")
+    subprocess.run("git clone --recursive https://github.com/facebookincubator/AITemplate".split(" "))
+
+    print("compiling stable diffusion into AITemplate")
+    old_path = os.environ["PATH"]
+    old_ld_path = os.environ["LD_LIBRARY_PATH"]
+    print(
+        subprocess.run(
+            cmd,
+            cwd="/root/AITemplate",
+            check=True,
+            env={
+                "PATH": f"export PATH=/usr/local/cuda-11.7/bin:{old_path}",
+                "LD_LIBRARY_PATH": f"/usr/local/cuda-11.7/lib64:{old_ld_path}",
+            },
+        )
+    )
+
+
+def nvidia_smi():
+    import subprocess
+
+    print(subprocess.run("nvidia-smi", check=True))
+
+
 image = (
     modal.Image.debian_slim()
     .pip_install(
@@ -91,12 +123,28 @@ image = (
             "triton",
             "safetensors",
             "xformers==0.0.16rc393",
+            "wheel",
         ]
     )
-    .run_function(
-        download_models,
-        secrets=[modal.Secret.from_name("huggingface-secret")],
+    .apt_install(["git", "wget"])
+    .run_commands(
+        [
+            "wget -q https://developer.download.nvidia.com/compute/cuda/12.0.0/local_installers/cuda-repo-debian11-12-0-local_12.0.0-525.60.13-1_amd64.deb",
+            "dpkg -i cuda-repo-debian11-12-0-local_12.0.0-525.60.13-1_amd64.deb",
+            "cp /var/cuda-repo-debian11-12-0-local/cuda-*-keyring.gpg /usr/share/keyrings/",
+            "apt-get install -y software-properties-common",
+            "add-apt-repository contrib",
+            "apt-get update",
+            "apt-get -y install cuda",
+        ]
     )
+    .run_commands(
+        [
+            "git clone --recursive https://github.com/facebookincubator/AITemplate",
+            "cd AITemplate/python && python setup.py bdist_wheel && pip install dist/*.whl --force-reinstall",
+        ]
+    )
+    .run_function(compile_ait_models, secrets=[modal.Secret.from_name("huggingface-secret")], gpu=modal.gpu.A100())
 )
 stub.image = image
 
