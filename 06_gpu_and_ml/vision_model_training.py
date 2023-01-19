@@ -35,7 +35,7 @@ import modal
 web_app = FastAPI()
 assets_path = pathlib.Path(__file__).parent / "vision_model_training" / "assets"
 stub = modal.Stub(name="example-fastai-wandb-gradio-cifar10-demo")
-image = modal.Image.debian_slim().pip_install(
+image = modal.Image.debian_slim(python_version="3.10").pip_install(
     "fastai~=2.7.9",
     "gradio~=3.6",
     "httpx~=0.23.0",
