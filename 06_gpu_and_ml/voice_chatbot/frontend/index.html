@@ -1,0 +1,58 @@
+<h1>wip</h1>
+<div style="position: relative">
+  <video
+    id="video"
+    width="480"
+    autoplay
+    muted
+    style="position: relative; top: 0; left: 0"
+  ></video
+  ><br />
+  <img id="outputImg" style="position: absolute; top: 0; left: 0" />
+  <div
+    id="message"
+    style="position: absolute; top: 0; left: 0; color: red"
+  ></div>
+</div>
+
+<script type="worklet">
+  class WorkletProcessor extends AudioWorkletProcessor {
+      process(inputs, outputs, parameters) {
+          // Do something with the data, e.g. convert it to WAV
+          console.log(inputs);
+          return true;
+      }
+  }
+
+  registerProcessor("worklet-processor", WorkletProcessor);
+</script>
+
+<script>
+  const getWorkletUrl = () => {
+    const source = document.querySelector("script[type=worklet]");
+    const blob = new Blob([source.innerText], {
+      type: "application/javascript",
+    });
+
+    return URL.createObjectURL(blob);
+  };
+
+  const getNextFrameLoop = async (stream) => {
+    const context = new AudioContext();
+    const source = context.createMediaStreamSource(stream);
+
+    url = getWorkletUrl();
+    await context.audioWorklet.addModule(url);
+    const worklet = new AudioWorkletNode(context, "worklet-processor");
+
+    source.connect(worklet);
+    worklet.connect(context.destination);
+  };
+
+  navigator.mediaDevices
+    .getUserMedia({ audio: true })
+    .then(getNextFrameLoop)
+    .catch((e) => {
+      message.textContent = e.name + ": " + e.message;
+    });
+</script>
