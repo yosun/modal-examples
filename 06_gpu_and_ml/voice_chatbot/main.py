@@ -8,8 +8,9 @@ import time
 from pathlib import Path
 from typing import Iterator
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 import modal
 
@@ -129,7 +130,7 @@ def split_silences(
     print(f"Split {path} into {num_segments} segments")
 
 
-@stub.function
+@stub.function()
 def download_mp3_from_youtube(youtube_url: str) -> bytes:
     from pytube import YouTube
 
@@ -192,12 +193,6 @@ async def stream_whisper(audio_data: bytes):
 static_path = Path(__file__).with_name("frontend").resolve()
 
 
-@web_app.get("/", response_class=HTMLResponse)
-async def slash(request: Request):
-    with open("/assets/index.html") as f:
-        return HTMLResponse(status_code=200, content=f.read())
-
-
 @web_app.get("/transcribe")
 async def transcribe(url: str):
     """
@@ -235,17 +230,18 @@ async def transcribe(url: str):
 )
 @stub.asgi_app()
 def web():
+    web_app.mount("/", StaticFiles(directory="/assets", html=True))
     print("AA")
     return web_app
 
 
-@stub.function
+@stub.function()
 async def transcribe_cli(data: bytes, suffix: str):
     async for result in stream_whisper(data):
         print(result)
 
 
-@stub.local_entrypoint
+@stub.local_entrypoint()
 def main(path: str = CHARLIE_CHAPLIN_DICTATOR_SPEECH_URL):
     if path.startswith("https"):
         data = download_mp3_from_youtube.call(path)
