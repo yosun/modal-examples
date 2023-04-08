@@ -1,26 +1,28 @@
 <h1>wip</h1>
-<div style="position: relative">
-  <video
-    id="video"
-    width="480"
-    autoplay
-    muted
-    style="position: relative; top: 0; left: 0"
-  ></video
-  ><br />
-  <img id="outputImg" style="position: absolute; top: 0; left: 0" />
-  <div
-    id="message"
-    style="position: absolute; top: 0; left: 0; color: red"
-  ></div>
-</div>
+<div style="position: relative"></div>
 
 <script type="module">
   import RecorderNode from "./recorder-node.js";
 
   const onBufferFilled = async (buffer) => {
-    // Replace with your API call.
-    console.log("API call:", buffer);
+    const blob = new Blob([buffer], { type: "audio/float32" });
+
+    const t0 = performance.now();
+    const response = await fetch("/transcribe", {
+      method: "POST",
+      body: blob,
+      headers: { "Content-Type": "audio/float32" },
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        "Error occurred during transcription: " + response.status
+      );
+    }
+
+    // You can process the response here, e.g., convert it to JSON or text.
+    const data = await response.json();
+    console.log(data, performance.now() - t0);
   };
 
   const getNextFrameLoop = async (stream) => {
