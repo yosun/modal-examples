@@ -15,16 +15,23 @@
   ></div>
 </div>
 
-<script>
+<script type="module">
+  import RecorderNode from "./recorder-node.js";
+
+  const onBufferFilled = async (buffer) => {
+    // Replace with your API call.
+    console.log("API call:", buffer);
+  };
+
   const getNextFrameLoop = async (stream) => {
     const context = new AudioContext();
     const source = context.createMediaStreamSource(stream);
 
     await context.audioWorklet.addModule("processor.js");
-    const worklet = new AudioWorkletNode(context, "worklet-processor");
+    const recorderNode = new RecorderNode(context, onBufferFilled);
 
-    source.connect(worklet);
-    worklet.connect(context.destination);
+    source.connect(recorderNode);
+    recorderNode.connect(context.destination);
   };
 
   navigator.mediaDevices
