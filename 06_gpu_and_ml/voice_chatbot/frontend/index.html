@@ -1,54 +1,14 @@
-<h1>Modal Voice Chatbot</h1>
-<div style="position: relative">
-  <div
-    id="message"
-    style="position: absolute; top: 0; left: 0; color: red"
-  ></div>
-</div>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Alpaca Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
 
-<script type="module">
-  import RecorderNode from "./recorder-node.js";
-
-  const onSegment = async (buffer) => {
-    const blob = new Blob([buffer], { type: "audio/float32" });
-
-    const t0 = performance.now();
-    const response = await fetch("/transcribe", {
-      method: "POST",
-      body: blob,
-      headers: { "Content-Type": "audio/float32" },
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        "Error occurred during transcription: " + response.status
-      );
-    }
-
-    // You can process the response here, e.g., convert it to JSON or text.
-    const data = await response.json();
-    console.log(data, performance.now() - t0);
-    message.textContent = message.textContent + data;
-  };
-
-  const getNextFrameLoop = async (stream) => {
-    const context = new AudioContext();
-    const source = context.createMediaStreamSource(stream);
-
-    await context.audioWorklet.addModule("processor.js");
-    const recorderNode = new RecorderNode(context, onSegment);
-
-    source.connect(recorderNode);
-    recorderNode.connect(context.destination);
-
-    // Warm up GPU function.
-    onSegment(new Float32Array());
-  };
-
-  navigator.mediaDevices
-    .getUserMedia({ audio: true })
-    .then(getNextFrameLoop)
-    .catch((e) => {
-      console.error(e);
-    });
-</script>
+  <body class="bg-gray-50">
+    <noscript>You must have JavaScript enabled to use this app.</noscript>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
