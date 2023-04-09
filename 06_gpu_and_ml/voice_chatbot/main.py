@@ -49,7 +49,7 @@ def load_audio(data: bytes, sr: int = 16000):
     return np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
 
 
-@stub.function(gpu="A10G")
+@stub.function(gpu="A10G", container_idle_timeout=180)
 def transcribe_segment(
     audio_data: bytes,
     model: str = "base.en",
@@ -73,6 +73,7 @@ static_path = Path(__file__).with_name("frontend").resolve()
 
 @stub.function(
     mounts=[modal.Mount.from_local_dir(static_path, remote_path="/assets")],
+    container_idle_timeout=180,
 )
 @stub.asgi_app()
 def web():

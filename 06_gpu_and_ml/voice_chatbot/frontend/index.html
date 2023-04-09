@@ -1,10 +1,15 @@
-<h1>wip</h1>
-<div style="position: relative"></div>
+<h1>Modal Voice Chatbot</h1>
+<div style="position: relative">
+  <div
+    id="message"
+    style="position: absolute; top: 0; left: 0; color: red"
+  ></div>
+</div>
 
 <script type="module">
   import RecorderNode from "./recorder-node.js";
 
-  const onBufferFilled = async (buffer) => {
+  const onSegment = async (buffer) => {
     const blob = new Blob([buffer], { type: "audio/float32" });
 
     const t0 = performance.now();
@@ -23,6 +28,7 @@
     // You can process the response here, e.g., convert it to JSON or text.
     const data = await response.json();
     console.log(data, performance.now() - t0);
+    message.textContent = message.textContent + data;
   };
 
   const getNextFrameLoop = async (stream) => {
@@ -30,16 +36,19 @@
     const source = context.createMediaStreamSource(stream);
 
     await context.audioWorklet.addModule("processor.js");
-    const recorderNode = new RecorderNode(context, onBufferFilled);
+    const recorderNode = new RecorderNode(context, onSegment);
 
     source.connect(recorderNode);
     recorderNode.connect(context.destination);
+
+    // Warm up GPU function.
+    onSegment(new Float32Array());
   };
 
   navigator.mediaDevices
     .getUserMedia({ audio: true })
     .then(getNextFrameLoop)
     .catch((e) => {
-      message.textContent = e.name + ": " + e.message;
+      console.error(e);
     });
 </script>
