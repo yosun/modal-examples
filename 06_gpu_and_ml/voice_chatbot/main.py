@@ -4,17 +4,17 @@ from pathlib import Path
 
 import modal
 
-image = (
+stub = modal.Stub(name="example-voice-chatbot")
+
+
+transcriber_image = (
     modal.Image.debian_slim()
     .apt_install("git", "ffmpeg")
     .pip_install(
         "https://github.com/openai/whisper/archive/v20230314.tar.gz",
         "ffmpeg-python",
-        "pytube~=12.1.2",
     )
 )
-
-stub = modal.Stub(name="example-voice-chatbot", image=image)
 
 
 def load_audio(data: bytes, sr: int = 16000):
@@ -58,8 +58,9 @@ class Transcriber:
         device = "cuda" if self.use_gpu else "cpu"
         self.model = whisper.load_model("base.en", device=device)
 
-    @stub.function(gpu="A10G", container_idle_timeout=180)
-    # @stub.function(cpu=2, container_idle_timeout=180)
+    @stub.function(
+        gpu="A10G", container_idle_timeout=180, image=transcriber_image
+    )
     def transcribe_segment(
         self,
         audio_data: bytes,
@@ -70,6 +71,44 @@ class Transcriber:
         print(f"Transcribed in {time.time() - t0:.2f}s")
 
         return result
+
+
+REPO_ID = "anon8231489123/gpt4-x-alpaca-13b-native-4bit-128g"
+FILENAME = "gpt4-x-alpaca-13b-ggml-q4_1-from-gptq-4bit-128g/ggml-model-q4_1.bin"
+MODEL_DIR = Path("/model")
+
+
+def download_model():
+    from huggingface_hub import hf_hub_download
+
+    hf_hub_download(
+        local_dir=MODEL_DIR,
+        repo_id=REPO_ID,
+        filename=FILENAME,
+    )
+
+
+llama_image = (
+    modal.Image.debian_slim()
+    .pip_install("llama-cpp-python", "huggingface_hub")
+    .run_function(download_model)
+)
+
+
+@stub.function(image=llama_image)
+def llama():
+    from llama_cpp import Llama
+
+    llm = Llama(model_path=str(MODEL_DIR / FILENAME))
+
+    output = llm(
+        "Question: What are the names of the planets in the solar system? Answer: ",
+        max_tokens=48,
+        stop=["Q:", "\n"],
+        echo=True,
+    )
+
+    pass
 
 
 static_path = Path(__file__).with_name("frontend").resolve()
