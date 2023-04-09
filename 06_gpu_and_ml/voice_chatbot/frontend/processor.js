@@ -1,16 +1,33 @@
+const SILENCE_THRESHOLD = 0.02;
+const SAMPLE_RATE = 48000;
+const MAX_SEGMENT_LENGTH = 10; // seconds
+
 class WorkletProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    this._bufferSize = 480000; // 10 seconds * 48000 samples/second
+    this._bufferSize = MAX_SEGMENT_LENGTH * SAMPLE_RATE;
     this._buffer = new Float32Array(this._bufferSize);
     this._writeIndex = 0;
 
     this._amplitudeHistorySize = 180; // 128 * 200 / 48000 = ~0.5s
     this._lastAmplitudes = new Array();
     this._amplitudeSum = 0;
+    this._stopped = false;
+
+    this.port.onmessage = (event) => {
+      if (event.data.type === "stop") {
+        this._stopped = true;
+      } else if (event.data.type === "start") {
+        this._writeIndex = 0;
+        this._stopped = false;
+      }
+    };
   }
 
   process(inputs, outputs, parameters) {
+    if (this._stopped) {
+      return true;
+    }
     const channelData = inputs[0][0];
 
     const amplitude =
@@ -29,6 +46,12 @@ class WorkletProcessor extends AudioWorkletProcessor {
     this._buffer.set(channelData, this._writeIndex);
     this._writeIndex += channelData.length;
     const remainingBufferSize = this._bufferSize - this._writeIndex;
+
+    if (averageAmplitude > SILENCE_THRESHOLD) {
+      this.port.postMessage({ type: "talking" });
+    } else {
+      this.port.postMessage({ type: "silence" });
+    }
 
     if (averageAmplitude < 0.02 || remainingBufferSize < channelData.length) {
       // 2 second minimum

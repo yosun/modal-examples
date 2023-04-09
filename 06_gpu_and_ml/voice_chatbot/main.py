@@ -73,57 +73,45 @@ class Transcriber:
         return result
 
 
-REPO_ID = "anon8231489123/gpt4-x-alpaca-13b-native-4bit-128g"
-FILENAME = "gpt4-x-alpaca-13b-ggml-q4_1-from-gptq-4bit-128g/ggml-model-q4_1.bin"
-MODEL_DIR = Path("/model")
+base_model = "decapoda-research/llama-7b-hf"
+lora_weights = "tloen/alpaca-lora-7b"
+cache_path = "/cache"
 
 
-def download_model():
-    from huggingface_hub import hf_hub_download
+def download_models():
+    import torch
+    from peft import PeftModel
+    from transformers import LlamaForCausalLM, LlamaTokenizer
 
-    hf_hub_download(
-        local_dir=MODEL_DIR,
-        repo_id=REPO_ID,
-        filename=FILENAME,
+    model = LlamaForCausalLM.from_pretrained(
+        base_model,
     )
+    model.save_pretrained(cache_path)
+
+    model = PeftModel.from_pretrained(
+        model,
+        lora_weights,
+    )
+    model.save_pretrained(cache_path)
+
+    tokenizer = LlamaTokenizer.from_pretrained(base_model)
+    tokenizer.save_pretrained(cache_path)
 
 
-static_path = Path(__file__).with_name("frontend").resolve()
+alpaca_repo_url = "https://github.com/tloen/alpaca-lora"
+alpaca_commit_hash = "fcbc45e4c0db8948743bd1227b46a796c1effcd0"
 
-
-@stub.function(
-    mounts=[modal.Mount.from_local_dir(static_path, remote_path="/assets")],
-    container_idle_timeout=180,
-)
-@stub.asgi_app()
-def web():
-    from fastapi import FastAPI, Request
-    from fastapi.staticfiles import StaticFiles
-
-    web_app = FastAPI()
-    transcriber = Transcriber()
-
-    @web_app.post("/transcribe")
-    async def transcribe(request: Request):
-        bytes = await request.body()
-        result = transcriber.transcribe_segment.call(bytes)
-        return result["text"]
-
-    web_app.mount("/", StaticFiles(directory="/assets", html=True))
-    return web_app
-
-
-repo_url = "https://github.com/tloen/alpaca-lora"
-commit_hash = "fcbc45e4c0db8948743bd1227b46a796c1effcd0"
-image = (
-    modal.Image.debian_slim().apt_install("git")
+alpaca_image = (
+    modal.Image.micromamba()
+    .micromamba_install("cudatoolkit=11.7", channels=["conda-forge", "nvidia"])
+    .apt_install("git")
     # Here we place the latest repository code into /root.
     # Because /root is almost empty, but not entirely empty, `git clone` won't work,
     # so this `init` then `checkout` workaround is used.
     .run_commands(
         "cd /root && git init .",
-        f"cd /root && git remote add --fetch origin {repo_url}",
-        f"cd /root && git checkout {commit_hash}",
+        f"cd /root && git remote add --fetch origin {alpaca_repo_url}",
+        f"cd /root && git checkout {alpaca_commit_hash}",
     )
     # The alpaca-lora repository's dependencies list is in the repository,
     # but it's currently missing a dependency and not specifying dependency versions,
@@ -145,6 +133,7 @@ image = (
         "torchvision==0.15.1",
         "sentencepiece==0.1.97",
     )
+    .run_function(download_models)
 )
 
 
@@ -154,18 +143,16 @@ class AlpacaLoRAModel:
         from peft import PeftModel
         from transformers import LlamaForCausalLM, LlamaTokenizer
 
-        base_model = "decapoda-research/llama-7b-hf"
-        lora_weights = "tloen/alpaca-lora-7b"
+        self.tokenizer = LlamaTokenizer.from_pretrained(cache_path)
 
-        self.tokenizer = LlamaTokenizer.from_pretrained(base_model)
         model = LlamaForCausalLM.from_pretrained(
-            base_model,
+            cache_path,
             load_in_8bit=True,
             torch_dtype=torch.float16,
             device_map="auto",
         )
         model = PeftModel.from_pretrained(
-            model,
+            cache_path,
             lora_weights,
             torch_dtype=torch.float16,
         )
@@ -178,7 +165,7 @@ class AlpacaLoRAModel:
         model.eval()
         self.model = torch.compile(model)
 
-    @stub.function(gpu="A10G")
+    @stub.function(gpu="A10G", image=alpaca_image, container_idle_timeout=180)
     def generate(
         self,
         instruction,
@@ -215,3 +202,42 @@ class AlpacaLoRAModel:
         s = generation_output.sequences[0]
         output = self.tokenizer.decode(s)
         return output.split("### Response:")[1].strip()
+
+
+static_path = Path(__file__).with_name("frontend").resolve()
+
+
+@stub.function(
+    mounts=[modal.Mount.from_local_dir(static_path, remote_path="/assets")],
+    container_idle_timeout=180,
+)
+@stub.asgi_app()
+def web():
+    from fastapi import FastAPI, Request
+    from fastapi.staticfiles import StaticFiles
+
+    web_app = FastAPI()
+    transcriber = Transcriber()
+    alpaca = AlpacaLoRAModel()
+
+    @web_app.post("/transcribe")
+    async def transcribe(request: Request):
+        bytes = await request.body()
+        result = transcriber.transcribe_segment.call(bytes)
+        return result["text"]
+
+    @web_app.post("/submit")
+    async def submit(request: Request):
+        body = await request.json()
+        print(body)
+        result = alpaca.generate.call(body["input"])
+        return result
+
+    web_app.mount("/", StaticFiles(directory="/assets", html=True))
+    return web_app
+
+
+@stub.local_entrypoint()
+def main():
+    a = AlpacaLoRAModel()
+    a.generate.call("how are you?")
