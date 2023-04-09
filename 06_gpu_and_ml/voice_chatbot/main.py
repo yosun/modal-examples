@@ -49,23 +49,27 @@ def load_audio(data: bytes, sr: int = 16000):
     return np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
 
 
-@stub.function(gpu="A10G", container_idle_timeout=180)
-def transcribe_segment(
-    audio_data: bytes,
-    model: str = "base.en",
-):
-    import torch
-    import whisper
+class Transcriber:
+    def __enter__(self):
+        import torch
+        import whisper
 
-    t0 = time.time()
-    use_gpu = torch.cuda.is_available()
-    device = "cuda" if use_gpu else "cpu"
-    model = whisper.load_model(model, device=device)
-    np_array = load_audio(audio_data)
-    result = model.transcribe(np_array, language="en", fp16=use_gpu)  # type: ignore
-    print(f"Transcribed in {time.time() - t0:.2f}s")
+        self.use_gpu = torch.cuda.is_available()
+        device = "cuda" if self.use_gpu else "cpu"
+        self.model = whisper.load_model("base.en", device=device)
 
-    return result
+    @stub.function(gpu="A10G", container_idle_timeout=180)
+    # @stub.function(cpu=2, container_idle_timeout=180)
+    def transcribe_segment(
+        self,
+        audio_data: bytes,
+    ):
+        t0 = time.time()
+        np_array = load_audio(audio_data)
+        result = self.model.transcribe(np_array, language="en", fp16=self.use_gpu)  # type: ignore
+        print(f"Transcribed in {time.time() - t0:.2f}s")
+
+        return result
 
 
 static_path = Path(__file__).with_name("frontend").resolve()
@@ -81,11 +85,12 @@ def web():
     from fastapi.staticfiles import StaticFiles
 
     web_app = FastAPI()
+    transcriber = Transcriber()
 
     @web_app.post("/transcribe")
     async def transcribe(request: Request):
         bytes = await request.body()
-        result = transcribe_segment.call(bytes)
+        result = transcriber.transcribe_segment.call(bytes)
         return result["text"]
 
     web_app.mount("/", StaticFiles(directory="/assets", html=True))
