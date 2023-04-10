@@ -11,6 +11,7 @@ import { render } from "https://cdn.skypack.dev/solid-js/web";
 import html from "https://cdn.skypack.dev/solid-js/html";
 
 import RecorderNode from "./recorder-node.js";
+// import './loaders.css';
 
 function Layout(props) {
   const c = children(() => props.children);
@@ -19,6 +20,15 @@ function Layout(props) {
       <div class="mx-auto max-w-md py-8 sm:py-16">
         <main class="rounded-xl bg-white p-4 shadow-lg">${c}</main>
       </div>
+    </div>
+  `;
+}
+
+function RecordingSpinner(props) {
+  return html`
+    <div class="lds-ripple">
+      <div></div>
+      <div></div>
     </div>
   `;
 }
@@ -179,6 +189,11 @@ function App() {
       <${For} each=${chat}>
         ${(msg, i) => html`
           <div class=${"flex " + (i() % 2 ? "justify-end" : "justify-start")}>
+            <${Show}
+              when=${i() == chat.length - 1 && state() == State.USER_TALKING}
+            >
+              <${RecordingSpinner} />
+            <//>
             <div
               class=${"rounded-[16px] px-3 py-1.5 " +
               (i() % 2 ? "bg-indigo-500 text-white ml-8" : "bg-gray-100 mr-8")}

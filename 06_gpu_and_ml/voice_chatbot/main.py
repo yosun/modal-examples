@@ -60,9 +60,8 @@ class Transcriber:
 
     @stub.function(
         gpu="A10G",
-        container_idle_timeout=180,
+        container_idle_timeout=300,
         image=transcriber_image,
-        concurrency_limit=1,
     )
     def transcribe_segment(
         self,
@@ -179,15 +178,15 @@ class AlpacaLoRAModel:
     @stub.function(
         gpu="A10G",
         image=stub.alpaca_image,
-        container_idle_timeout=180,
-        concurrency_limit=1,
+        container_idle_timeout=300,
     )
     def generate(
         self,
         instruction,
     ):
         t0 = time.time()
-        prompt = generate_prompt(instruction, input)
+        prompt = generate_prompt(instruction)
+        print("Using prompt: ", prompt)
         inputs = self.tokenizer(prompt, return_tensors="pt")
         input_ids = inputs["input_ids"].to("cuda")
         generation_config = GenerationConfig(
@@ -215,7 +214,7 @@ static_path = Path(__file__).with_name("frontend").resolve()
 
 @stub.function(
     mounts=[modal.Mount.from_local_dir(static_path, remote_path="/assets")],
-    container_idle_timeout=180,
+    container_idle_timeout=300,
 )
 @stub.asgi_app()
 def web():
