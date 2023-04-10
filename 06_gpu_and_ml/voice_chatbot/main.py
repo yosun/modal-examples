@@ -75,7 +75,7 @@ class Transcriber:
 
 base_model = "decapoda-research/llama-7b-hf"
 lora_weights = "tloen/alpaca-lora-7b"
-cache_path = "/cache"
+cache_path = Path("/cache")
 
 
 def download_models():
@@ -86,22 +86,22 @@ def download_models():
     model = LlamaForCausalLM.from_pretrained(
         base_model,
     )
-    model.save_pretrained(cache_path)
+    model.save_pretrained(cache_path / "llama")
 
     model = PeftModel.from_pretrained(
         model,
         lora_weights,
     )
-    model.save_pretrained(cache_path)
+    model.save_pretrained(cache_path / "peft")
 
     tokenizer = LlamaTokenizer.from_pretrained(base_model)
-    tokenizer.save_pretrained(cache_path)
+    tokenizer.save_pretrained(cache_path / "llama-tokenizer")
 
 
 alpaca_repo_url = "https://github.com/tloen/alpaca-lora"
 alpaca_commit_hash = "fcbc45e4c0db8948743bd1227b46a796c1effcd0"
 
-alpaca_image = (
+stub.alpaca_image = (
     modal.Image.micromamba()
     .micromamba_install("cudatoolkit=11.7", channels=["conda-forge", "nvidia"])
     .apt_install("git")
@@ -116,9 +116,7 @@ alpaca_image = (
     # The alpaca-lora repository's dependencies list is in the repository,
     # but it's currently missing a dependency and not specifying dependency versions,
     # which leads to issues: https://github.com/tloen/alpaca-lora/issues/200.
-    # So we install a strictly versioned dependency list. This list excludes one or two
-    # dependencies listed by `tloen/alpaca-lora` but that are irrelevant within Modal,
-    # e.g. `black` code formatting library.
+    # So we install a strictly versioned dependency list.
     .pip_install(
         "accelerate==0.18.0",
         "appdirs==1.4.4",
@@ -134,26 +132,36 @@ alpaca_image = (
         "sentencepiece==0.1.97",
     )
     .run_function(download_models)
+    .dockerfile_commands(
+        [
+            'SHELL ["/usr/local/bin/_dockerfile_shell.sh"]',
+            'ENTRYPOINT ["/usr/local/bin/_entrypoint.sh"]',
+        ]
+    )
 )
+
+if stub.is_inside(stub.alpaca_image):
+    import torch
+    from generate import generate_prompt
+    from peft import PeftModel
+    from transformers import GenerationConfig, LlamaForCausalLM, LlamaTokenizer
 
 
 class AlpacaLoRAModel:
     def __enter__(self):
-        import torch
-        from peft import PeftModel
-        from transformers import LlamaForCausalLM, LlamaTokenizer
-
-        self.tokenizer = LlamaTokenizer.from_pretrained(cache_path)
+        self.tokenizer = LlamaTokenizer.from_pretrained(
+            str(cache_path / "llama-tokenizer")
+        )
 
         model = LlamaForCausalLM.from_pretrained(
-            cache_path,
+            str(cache_path / "llama"),
             load_in_8bit=True,
             torch_dtype=torch.float16,
             device_map="auto",
         )
         model = PeftModel.from_pretrained(
-            cache_path,
-            lora_weights,
+            model,
+            str(cache_path / "peft"),
             torch_dtype=torch.float16,
         )
 
@@ -163,9 +171,14 @@ class AlpacaLoRAModel:
         model.config.eos_token_id = 2
 
         model.eval()
+        t0 = time.time()
+        print("Loaded; compiling...")
         self.model = torch.compile(model)
+        print("Compiled", time.time() - t0)
 
-    @stub.function(gpu="A10G", image=alpaca_image, container_idle_timeout=180)
+    @stub.function(
+        gpu="A10G", image=stub.alpaca_image, container_idle_timeout=180
+    )
     def generate(
         self,
         instruction,
@@ -177,10 +190,7 @@ class AlpacaLoRAModel:
         max_new_tokens=128,
         **kwargs,
     ):
-        import torch
-        from generate import generate_prompt
-        from transformers import GenerationConfig
-
+        t0 = time.time()
         prompt = generate_prompt(instruction, input)
         inputs = self.tokenizer(prompt, return_tensors="pt")
         input_ids = inputs["input_ids"].to("cuda")
@@ -201,6 +211,7 @@ class AlpacaLoRAModel:
             )
         s = generation_output.sequences[0]
         output = self.tokenizer.decode(s)
+        print(f"Output in {time.time() - t0:.2f}s")
         return output.split("### Response:")[1].strip()
 
 
@@ -235,9 +246,3 @@ def web():
 
     web_app.mount("/", StaticFiles(directory="/assets", html=True))
     return web_app
-
-
-@stub.local_entrypoint()
-def main():
-    a = AlpacaLoRAModel()
-    a.generate.call("how are you?")
