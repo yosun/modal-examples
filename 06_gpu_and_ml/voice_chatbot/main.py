@@ -59,7 +59,10 @@ class Transcriber:
         self.model = whisper.load_model("base.en", device=device)
 
     @stub.function(
-        gpu="A10G", container_idle_timeout=180, image=transcriber_image
+        gpu="A10G",
+        container_idle_timeout=180,
+        image=transcriber_image,
+        concurrency_limit=1,
     )
     def transcribe_segment(
         self,
@@ -171,35 +174,27 @@ class AlpacaLoRAModel:
         model.config.eos_token_id = 2
 
         model.eval()
-        t0 = time.time()
-        print("Loaded; compiling...")
         self.model = torch.compile(model)
-        print("Compiled", time.time() - t0)
 
     @stub.function(
-        gpu="A10G", image=stub.alpaca_image, container_idle_timeout=180
+        gpu="A10G",
+        image=stub.alpaca_image,
+        container_idle_timeout=180,
+        concurrency_limit=1,
     )
     def generate(
         self,
         instruction,
-        input=None,
-        temperature=0.1,
-        top_p=0.75,
-        top_k=40,
-        num_beams=4,
-        max_new_tokens=128,
-        **kwargs,
     ):
         t0 = time.time()
         prompt = generate_prompt(instruction, input)
         inputs = self.tokenizer(prompt, return_tensors="pt")
         input_ids = inputs["input_ids"].to("cuda")
         generation_config = GenerationConfig(
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            num_beams=num_beams,
-            **kwargs,
+            temperature=0.1,
+            top_p=0.75,
+            top_k=40,
+            num_beams=4,
         )
         with torch.no_grad():
             generation_output = self.model.generate(
@@ -207,7 +202,7 @@ class AlpacaLoRAModel:
                 generation_config=generation_config,
                 return_dict_in_generate=True,
                 output_scores=True,
-                max_new_tokens=max_new_tokens,
+                max_new_tokens=128,
             )
         s = generation_output.sequences[0]
         output = self.tokenizer.decode(s)
@@ -240,8 +235,7 @@ def web():
     @web_app.post("/submit")
     async def submit(request: Request):
         body = await request.json()
-        print(body)
-        result = alpaca.generate.call(body["input"])
+        result = alpaca.generate.call(body.get("input", ""))
         return result
 
     web_app.mount("/", StaticFiles(directory="/assets", html=True))

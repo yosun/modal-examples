@@ -60,7 +60,10 @@ function App() {
           newChat.push("");
           setMessage("");
           setState(State.USER_TALKING);
-          recorderNode().start();
+          const node = recorderNode();
+          if (node) {
+            recorderNode().start();
+          }
         }
         setChat(newChat);
       }
@@ -68,11 +71,11 @@ function App() {
     return () => clearInterval(timer);
   });
 
-  const submitInput = async () => {
-    const m = message();
+  const submitInput = async (warm = false) => {
+    const body = warm ? {} : { input: message() };
     const response = await fetch("/submit", {
       method: "POST",
-      body: JSON.stringify({ input: m }),
+      body: JSON.stringify(body),
       headers: { "Content-Type": "application/json" },
     });
 
@@ -82,7 +85,7 @@ function App() {
 
     const msg = await response.json();
 
-    if (m.length > 0) {
+    if (!warm) {
       setMessage(msg);
       setChat([...chat(), ""]);
       setState(State.BOT_TALKING);
@@ -91,11 +94,15 @@ function App() {
 
   const onLongSilence = async () => {
     setState((s) => {
-      if (s === State.USER_SILENT && message().length > 0) {
-        console.log("Submitting input");
-        recorderNode().stop();
-        submitInput();
-        return State.WAITING_FOR_BOT;
+      if (s === State.USER_SILENT) {
+        if (message().length > 0) {
+          console.log("Submitting input");
+          recorderNode().stop();
+          submitInput();
+          return State.WAITING_FOR_BOT;
+        } else {
+          setRecordingTimeoutId(setTimeout(onLongSilence, SILENT_DELAY));
+        }
       }
       return s;
     });
@@ -145,6 +152,10 @@ function App() {
   };
 
   onMount(async () => {
+    // Warm up GPU functions.
+    onSegmentRecv(new Float32Array());
+    submitInput(true);
+
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
     const context = new AudioContext();
@@ -161,10 +172,6 @@ function App() {
 
     source.connect(recorderNode);
     recorderNode.connect(context.destination);
-
-    // Warm up GPU functions.
-    onSegmentRecv(new Float32Array());
-    submitInput();
   });
 
   return html`
