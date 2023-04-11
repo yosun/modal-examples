@@ -21,9 +21,9 @@ def download_model():
 stub.vicuna_image = (
     modal.Image.from_dockerhub(
         "nvidia/cuda:11.7.0-devel-ubuntu20.04",
-        setup_commands=[
-            "apt-get update",
-            "apt-get install -y python3 python3-pip python-is-python3",
+        setup_dockerfile_commands=[
+            "RUN apt-get update",
+            "RUN apt-get install -y python3 python3-pip python-is-python3",
         ],
     )
     .apt_install("git", "gcc", "build-essential")

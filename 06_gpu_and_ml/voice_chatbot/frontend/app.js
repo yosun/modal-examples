@@ -38,6 +38,7 @@ const SILENT_DELAY = 5000; // in milliseconds
 
 const State = {
   BOT_TALKING: "BOT_TALKING",
+  BOT_SILENT: "BOT_SILENT",
   USER_TALKING: "USER_TALKING",
   USER_SILENT: "USER_SILENT",
   WAITING_FOR_BOT: "WAITING_FOR_BOT",
@@ -48,7 +49,7 @@ function App() {
   const [message, setMessage] = createSignal(
     "Hi! I'm Alpaca running on Modal. Talk to me using your microphone."
   );
-  const [state, setState] = createSignal(State.BOT_TALKING);
+  const [state, setState] = createSignal(State.BOT_SILENT);
   const [recordingTimeoutId, setRecordingTimeoutId] = createSignal(null);
   const [recorderNode, setRecorderNode] = createSignal(null);
 
@@ -65,7 +66,7 @@ function App() {
         // Message finished.
         if (
           lastChatMessage.length + 1 === message().length &&
-          state() === State.BOT_TALKING
+          state() === State.BOT_SILENT
         ) {
           newChat.push("");
           setMessage("");
@@ -93,13 +94,37 @@ function App() {
       throw new Error("Error occurred during submission: " + response.status);
     }
 
-    const msg = await response.json();
+    const readableStream = response.body;
+    const decoder = new TextDecoder();
 
-    if (!warm) {
-      setMessage(msg);
-      setChat([...chat(), ""]);
-      setState(State.BOT_TALKING);
+    if (warm) {
+      return;
     }
+
+    setMessage("");
+    setChat([...chat(), ""]);
+    setState(State.BOT_TALKING);
+
+    // Create a reader to read the stream
+    const reader = readableStream.getReader();
+
+    // Process the stream
+    while (true) {
+      // Read the next chunk
+      const { done, value } = await reader.read();
+
+      // If the stream is done, exit the loop
+      if (done) {
+        break;
+      }
+
+      // Process the chunk (e.g., append it to a DOM element, log it, etc.)
+      setMessage((m) => m + decoder.decode(value));
+    }
+
+    // Close the reader after processing the stream
+    reader.releaseLock();
+    setState(State.BOT_SILENT);
   };
 
   const onLongSilence = async () => {

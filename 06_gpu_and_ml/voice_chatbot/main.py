@@ -4,8 +4,8 @@ from pathlib import Path
 
 import modal
 
-from .alpaca_lora import AlpacaLoRAModel
 from .common import stub
+from .vicuna import VicunaModel
 
 transcriber_image = (
     modal.Image.debian_slim()
@@ -85,11 +85,12 @@ static_path = Path(__file__).with_name("frontend").resolve()
 @stub.asgi_app()
 def web():
     from fastapi import FastAPI, Request
+    from fastapi.responses import StreamingResponse
     from fastapi.staticfiles import StaticFiles
 
     web_app = FastAPI()
     transcriber = Transcriber()
-    alpaca = AlpacaLoRAModel()
+    vicuna = VicunaModel()
 
     @web_app.post("/transcribe")
     async def transcribe(request: Request):
@@ -100,8 +101,11 @@ def web():
     @web_app.post("/submit")
     async def submit(request: Request):
         body = await request.json()
-        result = alpaca.generate.call(body.get("input", ""))
-        return result
+
+        return StreamingResponse(
+            vicuna.generate.call(body.get("input", "")),
+            media_type="text/event-stream",
+        )
 
     web_app.mount("/", StaticFiles(directory="/assets", html=True))
     return web_app
