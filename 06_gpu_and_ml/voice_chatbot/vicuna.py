@@ -1,11 +1,18 @@
 import time
-from pathlib import Path
 
 import modal
 
 from .common import stub
 
-MODEL_PATH = Path("/model.bin")
+
+def download_model():
+    from huggingface_hub import hf_hub_download
+
+    hf_hub_download(
+        local_dir="/FastChat/models/anon8231489123_vicuna-13b-GPTQ-4bit-128g",
+        repo_id="anon8231489123/vicuna-13b-GPTQ-4bit-128g",
+        filename="vicuna-13b-4bit-128g.safetensors",
+    )
 
 
 vicuna_image = (
@@ -34,11 +41,7 @@ vicuna_image = (
 
 class VicunaModel:
     def __enter__(self):
-        # python -m fastchat.serve.cli --model-name anon8231489123/vicuna-13b-GPTQ-4bit-128g --wbits 4 --groupsize 128
         t0 = time.time()
-        import sys
-
-        sys.path.insert(0, "/FastChat/repositories/GPTQ-for-LLaMa")
         self.model = None
         print(f"Model loaded in {time.time() - t0:.2f}s")
 
@@ -71,15 +74,12 @@ class VicunaModel:
                 "4",
                 "--groupsize",
                 "128",
+                "--debug",
             ]
         )
+        import os
 
-        import subprocess
-
-        subprocess.run(
-            "mv /FastChat/models/anon8231489123_vicuna-13b-GPTQ-4bit-128g/vicuna-13b-4bit-128g.safetensors /FastChat/models/anon8231489123_vicuna-13b-GPTQ-4bit-128g/vicuna-13b-GPTQ-4bit-128g.safetensors",
-            shell=True,
-        )
+        os.chdir("/FastChat")
 
         main(args)
         print(f"Output generated in {time.time() - t0:.2f}s")
