@@ -4,18 +4,21 @@ import modal
 
 from .common import stub
 
+MODEL_NAME = "anon8231489123/vicuna-13b-GPTQ-4bit-128g"
+NUM_GPUS = 1
+
 
 def download_model():
     from huggingface_hub import hf_hub_download
 
     hf_hub_download(
         local_dir="/FastChat/models/anon8231489123_vicuna-13b-GPTQ-4bit-128g",
-        repo_id="anon8231489123/vicuna-13b-GPTQ-4bit-128g",
+        repo_id=MODEL_NAME,
         filename="vicuna-13b-4bit-128g.safetensors",
     )
 
 
-vicuna_image = (
+stub.vicuna_image = (
     modal.Image.from_dockerhub(
         "nvidia/cuda:11.7.0-devel-ubuntu20.04",
         setup_commands=[
@@ -38,50 +41,57 @@ vicuna_image = (
     )
 )
 
+if stub.is_inside(stub.vicuna_image):
+    t0 = time.time()
+    import os
+
+    # This version of FastChat hard-codes a relative path for the model ("./model"),
+    # making this necessary :(
+    os.chdir("/FastChat")
+    from fastchat.conversation import SeparatorStyle, conv_templates
+    from fastchat.serve.cli import generate_stream
+    from fastchat.serve.load_gptq_model import load_quantized
+    from transformers import AutoTokenizer
+
 
 class VicunaModel:
     def __enter__(self):
-        t0 = time.time()
-        self.model = None
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+        print("Loading GPTQ quantized model...")
+        model = load_quantized(MODEL_NAME)
+        model.cuda()
+
+        self.model = model
+        self.tokenizer = tokenizer
         print(f"Model loaded in {time.time() - t0:.2f}s")
 
-    @stub.function(image=vicuna_image, cpu=12, gpu="T4")
+    @stub.function(image=stub.vicuna_image, gpu="A10G", is_generator=True)
     def generate(self, input):
-        from fastchat.serve.cli import main
-
         t0 = time.time()
-        import argparse
 
-        parser = argparse.ArgumentParser()
-        parser.add_argument(
-            "--model-name", type=str, default="facebook/opt-350m"
-        )
-        parser.add_argument("--num-gpus", type=str, default="1")
-        parser.add_argument(
-            "--device", type=str, choices=["cuda", "cpu"], default="cuda"
-        )
-        parser.add_argument("--conv-template", type=str, default="v1")
-        parser.add_argument("--temperature", type=float, default=0.7)
-        parser.add_argument("--max-new-tokens", type=int, default=512)
-        parser.add_argument("--debug", action="store_true")
-        parser.add_argument("--wbits", type=int, default=0)
-        parser.add_argument("--groupsize", type=int, default=0)
-        args = parser.parse_args(
-            [
-                "--model-name",
-                "anon8231489123/vicuna-13b-GPTQ-4bit-128g",
-                "--wbits",
-                "4",
-                "--groupsize",
-                "128",
-                "--debug",
-            ]
-        )
-        import os
+        conv = conv_templates["v1"].copy()
+        conv.append_message(conv.roles[0], input)
+        conv.append_message(conv.roles[1], None)
+        prompt = conv.get_prompt()
 
-        os.chdir("/FastChat")
+        params = {
+            "model": MODEL_NAME,
+            "prompt": prompt,
+            "temperature": 0.7,
+            "max_new_tokens": 512,
+            "stop": conv.sep
+            if conv.sep_style == SeparatorStyle.SINGLE
+            else conv.sep2,
+        }
 
-        main(args)
+        prev = len(prompt)
+        for outputs in generate_stream(
+            self.tokenizer, self.model, params, "cuda"
+        ):
+            yield outputs[prev:]
+            prev = len(outputs)
+
         print(f"Output generated in {time.time() - t0:.2f}s")
 
 
@@ -89,4 +99,5 @@ class VicunaModel:
 def main():
     model = VicunaModel()
     for _ in range(10):
-        print(model.generate.call("What is the meaning of life?"))
+        for val in model.generate.call("What is the meaning of life?"):
+            print(val, end="", flush=True)
