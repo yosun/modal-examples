@@ -103,7 +103,9 @@ def web():
         body = await request.json()
 
         return StreamingResponse(
-            vicuna.generate.call(body.get("input", "")),
+            vicuna.generate.call(
+                body.get("input", ""), body.get("history", [])
+            ),
             media_type="text/event-stream",
         )
 

@@ -53,9 +53,12 @@ class WorkletProcessor extends AudioWorkletProcessor {
       this.port.postMessage({ type: "silence" });
     }
 
-    if (averageAmplitude < 0.02 || remainingBufferSize < channelData.length) {
+    if (
+      averageAmplitude <= SILENCE_THRESHOLD ||
+      remainingBufferSize < channelData.length
+    ) {
       // 2 second minimum
-      if (this._writeIndex > 1 * 48000) {
+      if (this._writeIndex > 1 * SAMPLE_RATE) {
         console.log(
           "Sending segment",
           averageAmplitude,

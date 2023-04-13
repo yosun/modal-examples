@@ -41,6 +41,8 @@ stub.vicuna_image = (
     )
 )
 
+""
+
 if stub.is_inside(stub.vicuna_image):
     t0 = time.time()
     import os
@@ -66,11 +68,25 @@ class VicunaModel:
         self.tokenizer = tokenizer
         print(f"Model loaded in {time.time() - t0:.2f}s")
 
-    @stub.function(image=stub.vicuna_image, gpu="A10G", is_generator=True)
-    def generate(self, input):
+    @stub.function(
+        image=stub.vicuna_image,
+        gpu="A10G",
+        is_generator=True,
+        container_idle_timeout=300,
+    )
+    async def generate(self, input, history=[]):
         t0 = time.time()
 
         conv = conv_templates["v1"].copy()
+
+        assert (
+            len(history) % 2 == 0
+        ), "History must be an even number of messages"
+
+        for i in range(0, len(history), 2):
+            conv.append_message(conv.roles[0], history[i])
+            conv.append_message(conv.roles[1], history[i + 1])
+
         conv.append_message(conv.roles[0], input)
         conv.append_message(conv.roles[1], None)
         prompt = conv.get_prompt()
@@ -85,11 +101,11 @@ class VicunaModel:
             else conv.sep2,
         }
 
-        prev = len(prompt)
+        prev = len(prompt) + 2
         for outputs in generate_stream(
             self.tokenizer, self.model, params, "cuda"
         ):
-            yield outputs[prev:]
+            yield outputs[prev:].replace("##", "")
             prev = len(outputs)
 
         print(f"Output generated in {time.time() - t0:.2f}s")

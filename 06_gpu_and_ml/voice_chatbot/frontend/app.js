@@ -34,7 +34,7 @@ function RecordingSpinner(props) {
 }
 
 const TYPING_SPEED = 30; // in milliseconds
-const SILENT_DELAY = 5000; // in milliseconds
+const SILENT_DELAY = 3000; // in milliseconds
 
 const State = {
   BOT_TALKING: "BOT_TALKING",
@@ -83,7 +83,7 @@ function App() {
   });
 
   const submitInput = async (warm = false) => {
-    const body = warm ? {} : { input: message() };
+    const body = warm ? {} : { input: message(), history: chat().slice(1, -1) };
     const response = await fetch("/submit", {
       method: "POST",
       body: JSON.stringify(body),
@@ -169,6 +169,7 @@ function App() {
     const blob = new Blob([buffer], { type: "audio/float32" });
 
     const t0 = performance.now();
+    console.log("Sending audio segment");
     const response = await fetch("/transcribe", {
       method: "POST",
       body: blob,
