@@ -83,7 +83,9 @@ function App() {
   });
 
   const submitInput = async (warm = false) => {
-    const body = warm ? {} : { input: message(), history: chat().slice(1, -1) };
+    const body = warm
+      ? { warm: true }
+      : { input: message(), history: chat().slice(1, -1) };
     const response = await fetch("/submit", {
       method: "POST",
       body: JSON.stringify(body),
@@ -117,6 +119,7 @@ function App() {
       if (done) {
         break;
       }
+      console.log("GOT", value);
 
       // Process the chunk (e.g., append it to a DOM element, log it, etc.)
       setMessage((m) => m + decoder.decode(value));

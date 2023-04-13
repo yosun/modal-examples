@@ -1,11 +1,9 @@
 import tempfile
 import time
-from pathlib import Path
 
 import modal
 
 from .common import stub
-from .vicuna import VicunaModel
 
 transcriber_image = (
     modal.Image.debian_slim()
@@ -49,7 +47,7 @@ def load_audio(data: bytes, sr: int = 16000):
     return np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
 
 
-class Transcriber:
+class Whisper:
     def __enter__(self):
         import torch
         import whisper
@@ -73,41 +71,3 @@ class Transcriber:
         print(f"Transcribed in {time.time() - t0:.2f}s")
 
         return result
-
-
-static_path = Path(__file__).with_name("frontend").resolve()
-
-
-@stub.function(
-    mounts=[modal.Mount.from_local_dir(static_path, remote_path="/assets")],
-    container_idle_timeout=300,
-)
-@stub.asgi_app()
-def web():
-    from fastapi import FastAPI, Request
-    from fastapi.responses import StreamingResponse
-    from fastapi.staticfiles import StaticFiles
-
-    web_app = FastAPI()
-    transcriber = Transcriber()
-    vicuna = VicunaModel()
-
-    @web_app.post("/transcribe")
-    async def transcribe(request: Request):
-        bytes = await request.body()
-        result = transcriber.transcribe_segment.call(bytes)
-        return result["text"]
-
-    @web_app.post("/submit")
-    async def submit(request: Request):
-        body = await request.json()
-
-        return StreamingResponse(
-            vicuna.generate.call(
-                body.get("input", ""), body.get("history", [])
-            ),
-            media_type="text/event-stream",
-        )
-
-    web_app.mount("/", StaticFiles(directory="/assets", html=True))
-    return web_app

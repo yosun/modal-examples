@@ -56,7 +56,7 @@ if stub.is_inside(stub.vicuna_image):
     from transformers import AutoTokenizer
 
 
-class VicunaModel:
+class Vicuna:
     def __enter__(self):
         tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
@@ -75,6 +75,9 @@ class VicunaModel:
         container_idle_timeout=300,
     )
     async def generate(self, input, history=[]):
+        if input == "":
+            return
+
         t0 = time.time()
 
         conv = conv_templates["v1"].copy()
@@ -105,7 +108,9 @@ class VicunaModel:
         for outputs in generate_stream(
             self.tokenizer, self.model, params, "cuda"
         ):
+            print("Yielding", outputs[prev:].replace("##", ""))
             yield outputs[prev:].replace("##", "")
+            time.sleep(2)
             prev = len(outputs)
 
         print(f"Output generated in {time.time() - t0:.2f}s")
@@ -113,7 +118,7 @@ class VicunaModel:
 
 @stub.local_entrypoint()
 def main():
-    model = VicunaModel()
+    model = Vicuna()
     for _ in range(10):
         for val in model.generate.call("What is the meaning of life?"):
             print(val, end="", flush=True)
