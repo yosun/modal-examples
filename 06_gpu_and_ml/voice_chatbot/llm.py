@@ -108,9 +108,7 @@ class Vicuna:
         for outputs in generate_stream(
             self.tokenizer, self.model, params, "cuda"
         ):
-            print("Yielding", outputs[prev:].replace("##", ""))
             yield outputs[prev:].replace("##", "")
-            time.sleep(2)
             prev = len(outputs)
 
         print(f"Output generated in {time.time() - t0:.2f}s")

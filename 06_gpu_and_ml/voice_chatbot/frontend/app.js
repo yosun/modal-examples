@@ -52,40 +52,41 @@ function App() {
   const [state, setState] = createSignal(State.BOT_SILENT);
   const [recordingTimeoutId, setRecordingTimeoutId] = createSignal(null);
   const [recorderNode, setRecorderNode] = createSignal(null);
+  const [audioContext, setAudioContext] = createSignal(null);
 
-  createEffect(() => {
-    const timer = setInterval(() => {
-      const c = chat();
-      const lastChatMessage = c[c.length - 1];
-      if (lastChatMessage.length < message().length) {
-        const newChat = [...c];
-        newChat[c.length - 1] = message().substring(
-          0,
-          lastChatMessage.length + 1
-        );
-        // Message finished.
-        if (
-          lastChatMessage.length + 1 === message().length &&
-          state() === State.BOT_SILENT
-        ) {
-          newChat.push("");
-          setMessage("");
-          setState(State.USER_TALKING);
-          const node = recorderNode();
-          if (node) {
-            recorderNode().start();
-          }
+  const context = new AudioContext();
+
+  setInterval(() => {
+    const c = chat();
+    const lastChatMessage = c[c.length - 1];
+    if (lastChatMessage.length < message().length) {
+      const newChat = [...c];
+      newChat[c.length - 1] = message().substring(
+        0,
+        lastChatMessage.length + 1
+      );
+      // Message finished.
+      if (
+        lastChatMessage.length + 1 === message().length &&
+        state() === State.BOT_SILENT
+      ) {
+        newChat.push("");
+        setMessage("");
+        setState(State.USER_TALKING);
+        const node = recorderNode();
+        if (node) {
+          recorderNode().start();
         }
-        setChat(newChat);
       }
-    }, TYPING_SPEED);
-    return () => clearInterval(timer);
-  });
+      setChat(newChat);
+    }
+  }, TYPING_SPEED);
 
   const submitInput = async (warm = false) => {
     const body = warm
       ? { warm: true }
       : { input: message(), history: chat().slice(1, -1) };
+
     const response = await fetch("/submit", {
       method: "POST",
       body: JSON.stringify(body),
@@ -103,6 +104,9 @@ function App() {
       return;
     }
 
+    const mediaSource = new MediaSource();
+    const context = audioContext();
+
     setMessage("");
     setChat([...chat(), ""]);
     setState(State.BOT_TALKING);
@@ -110,18 +114,25 @@ function App() {
     // Create a reader to read the stream
     const reader = readableStream.getReader();
 
-    // Process the stream
     while (true) {
-      // Read the next chunk
       const { done, value } = await reader.read();
 
-      // If the stream is done, exit the loop
       if (done) {
         break;
       }
-      console.log("GOT", value);
 
-      // Process the chunk (e.g., append it to a DOM element, log it, etc.)
+      console.log(value);
+      // audioBuffer = await context.decodeAudioData(new ArrayBuffer(value));
+      // console.log(audioBuffer);
+      // const source = context.createBufferSource();
+      // source.buffer = audioBuffer;
+
+      // // Connect the audio source to the audio context destination
+      // source.connect(context.destination);
+
+      // // Start playing the audio source
+      // source.start();
+
       setMessage((m) => m + decoder.decode(value));
     }
 
@@ -157,12 +168,20 @@ function App() {
     });
   };
 
+  createEffect((fired) => {
+    if (message() == "What is the meaning of life?" && fired == 0) {
+      onLongSilence();
+    }
+    return 1;
+  }, 0);
+
   const onTalking = async () => {
     setState((s) => {
       if (s === State.USER_SILENT) {
         console.log("Talking detected");
         clearTimeout(recordingTimeoutId());
         return State.USER_TALKING;
+        // setMessage("What is the meaning of life?");
       }
       return s;
     });
@@ -173,6 +192,7 @@ function App() {
 
     const t0 = performance.now();
     console.log("Sending audio segment");
+
     const response = await fetch("/transcribe", {
       method: "POST",
       body: blob,
@@ -198,6 +218,8 @@ function App() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
     const context = new AudioContext();
+    setAudioContext(context);
+
     const source = context.createMediaStreamSource(stream);
 
     await context.audioWorklet.addModule("processor.js");

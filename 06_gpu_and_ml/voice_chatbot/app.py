@@ -13,6 +13,7 @@ static_path = Path(__file__).with_name("frontend").resolve()
 @stub.function(
     mounts=[modal.Mount.from_local_dir(static_path, remote_path="/assets")],
     container_idle_timeout=300,
+    timeout=500,
 )
 @stub.asgi_app()
 def web():
@@ -40,16 +41,17 @@ def web():
             tts.speak.spawn("")
             return
 
-        async def generate():
-            result = ""
+        def generate():
+            # result = ""
+            # r = tts.speak.call("foo bar").read()
+            # print(r, len(r))
+            # yield r
             for segment in llm.generate.call(body["input"], body["history"]):
-                print("HERE", segment)
                 yield segment
-                result += segment
-            yield tts.speak.call(result)
+                # result += segment
 
         return StreamingResponse(
-            llm.generate.call(body["input"], body["history"]),
+            generate(),
             media_type="text/event-stream",
         )
 
