@@ -12,6 +12,8 @@ import modal
 
 from .common import stub
 
+stub.d = modal.Dict()
+
 
 def download_models():
     from tortoise.api import MODELS_DIR, TextToSpeech
@@ -111,13 +113,21 @@ class Tortoise:
 
         return "/voices/"
 
-    @stub.function(image=tortoise_image, gpu="A10G", container_idle_timeout=300)
+    @stub.function(
+        image=tortoise_image,
+        gpu="A10G",
+        container_idle_timeout=300,
+        timeout=600,
+    )
     def speak(self, text, voices="emma", target_file_web_paths=None):
         """
         Runs tortoise tts on a given text and voice. Alternatively, a
         web path can be to a target file to be used instead of a voice for
         one-shot synthesis.
         """
+        if text in stub.app.d:
+            return stub.app.d[text]
+        print("speaking", text)
         CANDIDATES = 1  # NOTE: this code only works for one candidate.
         CVVP_AMOUNT = 0.0
         SEED = None
@@ -157,5 +167,7 @@ class Tortoise:
         )
 
         wav = self.process_synthesis_result(gen.squeeze(0).cpu())
+
+        stub.app.d[text] = wav
 
         return wav

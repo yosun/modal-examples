@@ -13,6 +13,16 @@ import html from "https://cdn.skypack.dev/solid-js/html";
 import RecorderNode from "./recorder-node.js";
 // import './loaders.css';
 
+async function tryPlayAudio(context, buffer) {
+  // const buffer = flattenArrayBuffers(buffers);
+  const audioBuffer = await context.decodeAudioData(buffer);
+
+  const source = context.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(context.destination);
+  source.start();
+}
+
 function Layout(props) {
   const c = children(() => props.children);
   return html`
@@ -53,8 +63,6 @@ function App() {
   const [recordingTimeoutId, setRecordingTimeoutId] = createSignal(null);
   const [recorderNode, setRecorderNode] = createSignal(null);
   const [audioContext, setAudioContext] = createSignal(null);
-
-  const context = new AudioContext();
 
   setInterval(() => {
     const c = chat();
@@ -97,47 +105,66 @@ function App() {
       throw new Error("Error occurred during submission: " + response.status);
     }
 
-    const readableStream = response.body;
-    const decoder = new TextDecoder();
-
     if (warm) {
       return;
     }
 
-    const mediaSource = new MediaSource();
     const context = audioContext();
 
     setMessage("");
     setChat([...chat(), ""]);
     setState(State.BOT_TALKING);
 
-    // Create a reader to read the stream
+    const readableStream = response.body;
+    const decoder = new TextDecoder();
+
     const reader = readableStream.getReader();
+
+    // Stream text
+    let textDone = false;
+    while (!textDone) {
+      const { value } = await reader.read();
+
+      for (let message of decoder.decode(value).split("\n")) {
+        if (message == "text_done") {
+          textDone = true;
+        } else if (message.length > 0) {
+          setMessage((m) => m + message.split("text: ")[1]);
+        }
+      }
+    }
 
     while (true) {
       const { done, value } = await reader.read();
+      console.log(done, value);
 
       if (done) {
         break;
       }
 
-      console.log(value);
-      // audioBuffer = await context.decodeAudioData(new ArrayBuffer(value));
-      // console.log(audioBuffer);
-      // const source = context.createBufferSource();
-      // source.buffer = audioBuffer;
+      // 13-byte header in our hand-rolled protocol.
+      const message = decoder.decode(value.subarray(0, 13));
 
-      // // Connect the audio source to the audio context destination
-      // source.connect(context.destination);
+      const numBytes = +message.split("wav: ")[1];
 
-      // // Start playing the audio source
-      // source.start();
+      let bytesRecvd = 0;
 
-      setMessage((m) => m + decoder.decode(value));
+      const array = new Uint8Array(numBytes);
+      array.set(value.subarray(14), 0);
+      bytesRecvd += value.byteLength - 14;
+
+      while (bytesRecvd < numBytes) {
+        const { done, value } = await reader.read();
+
+        array.set(value, bytesRecvd);
+        bytesRecvd += value.byteLength;
+      }
+
+      await tryPlayAudio(context, array.buffer);
     }
 
-    // Close the reader after processing the stream
     reader.releaseLock();
+
     setState(State.BOT_SILENT);
   };
 
@@ -178,10 +205,10 @@ function App() {
   const onTalking = async () => {
     setState((s) => {
       if (s === State.USER_SILENT) {
-        console.log("Talking detected");
-        clearTimeout(recordingTimeoutId());
-        return State.USER_TALKING;
-        // setMessage("What is the meaning of life?");
+        // console.log("Talking detected");
+        // clearTimeout(recordingTimeoutId());
+        // return State.USER_TALKING;
+        setMessage("What is the meaning of life?");
       }
       return s;
     });

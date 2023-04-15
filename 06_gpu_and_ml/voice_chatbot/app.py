@@ -13,7 +13,7 @@ static_path = Path(__file__).with_name("frontend").resolve()
 @stub.function(
     mounts=[modal.Mount.from_local_dir(static_path, remote_path="/assets")],
     container_idle_timeout=300,
-    timeout=500,
+    timeout=600,
 )
 @stub.asgi_app()
 def web():
@@ -42,13 +42,30 @@ def web():
             return
 
         def generate():
-            # result = ""
-            # r = tts.speak.call("foo bar").read()
-            # print(r, len(r))
-            # yield r
-            for segment in llm.generate.call(body["input"], body["history"]):
-                yield segment
-                # result += segment
+            audio_futs = []
+            sentence = ""
+
+            # for segment in llm.generate.call(body["input"], body["history"]):
+            #     yield f"text: {segment}\n"
+            #     sentence += segment
+            #     if "." in sentence:
+            #         prev_sentence, new_sentence = sentence.rsplit(".", 1)
+            #         fut = tts.speak.spawn(prev_sentence)
+            #         audio_futs.append(fut)
+            #         sentence = new_sentence
+
+            audio_futs.append(tts.speak.spawn("What is the meaning of life?"))
+            audio_futs.append(tts.speak.spawn("What is the meaning of life?"))
+            yield "text: temp\n"
+
+            yield "text_done\n"
+
+            print("done generating")
+            for fut in audio_futs:
+                audio = fut.get()
+                bytes = audio.read()
+                yield f"wav: {len(bytes):08}\n"
+                yield bytes
 
         return StreamingResponse(
             generate(),
