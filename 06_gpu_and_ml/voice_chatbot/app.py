@@ -42,21 +42,16 @@ def web():
             return
 
         def generate():
-            audio_futs = []
             sentence = ""
 
-            # for segment in llm.generate.call(body["input"], body["history"]):
-            #     yield f"text: {segment}\n"
-            #     sentence += segment
-            #     if "." in sentence:
-            #         prev_sentence, new_sentence = sentence.rsplit(".", 1)
-            #         fut = tts.speak.spawn(prev_sentence)
-            #         audio_futs.append(fut)
-            #         sentence = new_sentence
-
-            fc = tts.speak.spawn("What is the meaning of life?")
-            yield "text: temp\n"
-            yield f"audio: {fc.object_id}\n"
+            for segment in llm.generate.call(body["input"], body["history"]):
+                yield f"text: {segment}\n"
+                sentence += segment
+                if "." in sentence:
+                    prev_sentence, new_sentence = sentence.rsplit(".", 1)
+                    function_call = tts.speak.spawn(prev_sentence)
+                    yield f"audio: {function_call.object_id}\n"
+                    sentence = new_sentence
 
         return StreamingResponse(
             generate(),

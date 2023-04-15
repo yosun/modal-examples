@@ -53,29 +53,43 @@ class PlayQueue {
 
   async add(call_id) {
     this.call_ids.push(call_id);
-
-    if (!this.isPlaying) {
-      this.isPlaying = true;
-
-      while (this.call_ids.length > 0) {
-        this.play();
-      }
-
-      this.isPlaying = false;
-    }
+    this.play();
   }
 
   async play() {
-    const call_id = this.call_ids.shift();
+    if (this.isPlaying || this.call_ids.length === 0) {
+      return;
+    }
 
-    const response = await fetch(`/audio/${call_id}`);
+    this.isPlaying = true;
+    const call_id = this.call_ids.shift();
+    console.log("FETCHING", call_id);
+
+    let response;
+    while (true) {
+      response = await fetch(`/audio/${call_id}`);
+      if (response.status === 202) {
+        console.log("Timed out fetching audio, retrying...");
+      } else if (!response.ok) {
+        throw new Error("Error occurred fetching audio: " + response.status);
+      } else {
+        break;
+      }
+    }
+
     const arrayBuffer = await response.arrayBuffer();
+    console.log("FETCHED", call_id, arrayBuffer);
 
     const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
 
     const source = this.audioContext.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(this.audioContext.destination);
+
+    source.onended = () => {
+      this.isPlaying = false;
+      this.play();
+    };
     source.start();
   }
 }
