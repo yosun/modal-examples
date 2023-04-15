@@ -13,16 +13,6 @@ import html from "https://cdn.skypack.dev/solid-js/html";
 import RecorderNode from "./recorder-node.js";
 // import './loaders.css';
 
-async function tryPlayAudio(context, buffer) {
-  // const buffer = flattenArrayBuffers(buffers);
-  const audioBuffer = await context.decodeAudioData(buffer);
-
-  const source = context.createBufferSource();
-  source.buffer = audioBuffer;
-  source.connect(context.destination);
-  source.start();
-}
-
 function Layout(props) {
   const c = children(() => props.children);
   return html`
@@ -54,15 +44,51 @@ const State = {
   WAITING_FOR_BOT: "WAITING_FOR_BOT",
 };
 
+class PlayQueue {
+  constructor(audioContext) {
+    this.call_ids = [];
+    this.isPlaying = false;
+    this.audioContext = audioContext;
+  }
+
+  async add(call_id) {
+    this.call_ids.push(call_id);
+
+    if (!this.isPlaying) {
+      this.isPlaying = true;
+
+      while (this.call_ids.length > 0) {
+        this.play();
+      }
+
+      this.isPlaying = false;
+    }
+  }
+
+  async play() {
+    const call_id = this.call_ids.shift();
+
+    const response = await fetch(`/audio/${call_id}`);
+    const arrayBuffer = await response.arrayBuffer();
+
+    const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+
+    const source = this.audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(this.audioContext.destination);
+    source.start();
+  }
+}
+
 function App() {
   const [chat, setChat] = createSignal([""]);
   const [message, setMessage] = createSignal(
     "Hi! I'm Alpaca running on Modal. Talk to me using your microphone."
   );
   const [state, setState] = createSignal(State.BOT_SILENT);
+  const [playQueue, setPlayQueue] = createSignal(null);
   const [recordingTimeoutId, setRecordingTimeoutId] = createSignal(null);
   const [recorderNode, setRecorderNode] = createSignal(null);
-  const [audioContext, setAudioContext] = createSignal(null);
 
   setInterval(() => {
     const c = chat();
@@ -90,12 +116,12 @@ function App() {
     }
   }, TYPING_SPEED);
 
-  const submitInput = async (warm = false) => {
+  const generateResponse = async (warm = false) => {
     const body = warm
       ? { warm: true }
       : { input: message(), history: chat().slice(1, -1) };
 
-    const response = await fetch("/submit", {
+    const response = await fetch("/generate", {
       method: "POST",
       body: JSON.stringify(body),
       headers: { "Content-Type": "application/json" },
@@ -109,8 +135,6 @@ function App() {
       return;
     }
 
-    const context = audioContext();
-
     setMessage("");
     setChat([...chat(), ""]);
     setState(State.BOT_TALKING);
@@ -120,47 +144,23 @@ function App() {
 
     const reader = readableStream.getReader();
 
-    // Stream text
-    let textDone = false;
-    while (!textDone) {
-      const { value } = await reader.read();
-
-      for (let message of decoder.decode(value).split("\n")) {
-        if (message == "text_done") {
-          textDone = true;
-        } else if (message.length > 0) {
-          setMessage((m) => m + message.split("text: ")[1]);
-        }
-      }
-    }
-
     while (true) {
       const { done, value } = await reader.read();
-      console.log(done, value);
 
       if (done) {
         break;
       }
 
-      // 13-byte header in our hand-rolled protocol.
-      const message = decoder.decode(value.subarray(0, 13));
+      for (let message of decoder.decode(value).split("\n")) {
+        let [type, ...payload] = message.split(": ");
+        payload = payload.join(": ");
 
-      const numBytes = +message.split("wav: ")[1];
-
-      let bytesRecvd = 0;
-
-      const array = new Uint8Array(numBytes);
-      array.set(value.subarray(14), 0);
-      bytesRecvd += value.byteLength - 14;
-
-      while (bytesRecvd < numBytes) {
-        const { done, value } = await reader.read();
-
-        array.set(value, bytesRecvd);
-        bytesRecvd += value.byteLength;
+        if (type == "text") {
+          setMessage((m) => m + payload);
+        } else if (type == "audio") {
+          playQueue().add(payload);
+        }
       }
-
-      await tryPlayAudio(context, array.buffer);
     }
 
     reader.releaseLock();
@@ -174,7 +174,7 @@ function App() {
         if (message().length > 0) {
           console.log("Submitting input");
           recorderNode().stop();
-          submitInput();
+          generateResponse();
           return State.WAITING_FOR_BOT;
         } else {
           setRecordingTimeoutId(setTimeout(onLongSilence, SILENT_DELAY));
@@ -240,12 +240,11 @@ function App() {
   onMount(async () => {
     // Warm up GPU functions.
     onSegmentRecv(new Float32Array());
-    submitInput(true);
+    generateResponse(true);
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
     const context = new AudioContext();
-    setAudioContext(context);
 
     const source = context.createMediaStreamSource(stream);
 
@@ -260,6 +259,8 @@ function App() {
 
     source.connect(recorderNode);
     recorderNode.connect(context.destination);
+
+    setPlayQueue(new PlayQueue(context));
   });
 
   return html`

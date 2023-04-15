@@ -18,7 +18,7 @@ static_path = Path(__file__).with_name("frontend").resolve()
 @stub.asgi_app()
 def web():
     from fastapi import FastAPI, Request
-    from fastapi.responses import StreamingResponse
+    from fastapi.responses import Response, StreamingResponse
     from fastapi.staticfiles import StaticFiles
 
     web_app = FastAPI()
@@ -32,8 +32,8 @@ def web():
         result = transcriber.transcribe_segment.call(bytes)
         return result["text"]
 
-    @web_app.post("/submit")
-    async def submit(request: Request):
+    @web_app.post("/generate")
+    async def generate(request: Request):
         body = await request.json()
 
         if "warm" in body:
@@ -54,23 +54,26 @@ def web():
             #         audio_futs.append(fut)
             #         sentence = new_sentence
 
-            audio_futs.append(tts.speak.spawn("What is the meaning of life?"))
-            audio_futs.append(tts.speak.spawn("What is the meaning of life?"))
+            fc = tts.speak.spawn("What is the meaning of life?")
             yield "text: temp\n"
-
-            yield "text_done\n"
-
-            print("done generating")
-            for fut in audio_futs:
-                audio = fut.get()
-                bytes = audio.read()
-                yield f"wav: {len(bytes):08}\n"
-                yield bytes
+            yield f"audio: {fc.object_id}\n"
 
         return StreamingResponse(
             generate(),
             media_type="text/event-stream",
         )
+
+    @web_app.get("/audio/{call_id}")
+    async def get_audio(call_id: str):
+        from modal.functions import FunctionCall
+
+        function_call = FunctionCall.from_id(call_id)
+        try:
+            result = function_call.get(timeout=30)
+        except TimeoutError:
+            return Response(status_code=202)
+
+        return StreamingResponse(result, media_type="audio/wav")
 
     web_app.mount("/", StaticFiles(directory="/assets", html=True))
     return web_app
