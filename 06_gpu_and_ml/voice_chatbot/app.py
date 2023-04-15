@@ -38,7 +38,9 @@ def web():
 
         if "warm" in body:
             llm.generate.spawn("")
-            tts.speak.spawn("")
+            # Warm up 3 containers for now.
+            for _ in range(3):
+                tts.speak.spawn("")
             return
 
         def generate():

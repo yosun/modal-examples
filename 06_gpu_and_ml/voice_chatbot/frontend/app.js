@@ -63,7 +63,7 @@ class PlayQueue {
 
     this.isPlaying = true;
     const call_id = this.call_ids.shift();
-    console.log("FETCHING", call_id);
+    console.log("Fetching audio for call", call_id);
 
     let response;
     while (true) {
@@ -78,8 +78,6 @@ class PlayQueue {
     }
 
     const arrayBuffer = await response.arrayBuffer();
-    console.log("FETCHED", call_id, arrayBuffer);
-
     const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
 
     const source = this.audioContext.createBufferSource();
@@ -219,10 +217,10 @@ function App() {
   const onTalking = async () => {
     setState((s) => {
       if (s === State.USER_SILENT) {
-        // console.log("Talking detected");
-        // clearTimeout(recordingTimeoutId());
-        // return State.USER_TALKING;
-        setMessage("What is the meaning of life?");
+        console.log("Talking detected");
+        clearTimeout(recordingTimeoutId());
+        return State.USER_TALKING;
+        // setMessage("What is the meaning of life?");
       }
       return s;
     });
