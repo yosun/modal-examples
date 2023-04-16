@@ -13,6 +13,7 @@ class WorkletProcessor extends AudioWorkletProcessor {
     this._lastAmplitudes = new Array();
     this._amplitudeSum = 0;
     this._stopped = false;
+    this._lastEvent = null;
 
     this.port.onmessage = (event) => {
       if (event.data.type === "stop") {
@@ -48,9 +49,15 @@ class WorkletProcessor extends AudioWorkletProcessor {
     const remainingBufferSize = this._bufferSize - this._writeIndex;
 
     if (averageAmplitude > SILENCE_THRESHOLD) {
-      this.port.postMessage({ type: "talking" });
+      if (this._lastEvent !== "talking") {
+        this._lastEvent = "talking";
+        this.port.postMessage({ type: "talking" });
+      }
     } else {
-      this.port.postMessage({ type: "silence" });
+      if (this._lastEvent !== "silence") {
+        this._lastEvent = "silence";
+        this.port.postMessage({ type: "silence" });
+      }
     }
 
     // If we have a silence or are running out of buffer space, send everything
@@ -59,7 +66,7 @@ class WorkletProcessor extends AudioWorkletProcessor {
       averageAmplitude <= SILENCE_THRESHOLD ||
       remainingBufferSize < channelData.length
     ) {
-      // 1 second minimum
+      // 0.5 second minimum
       if (this._writeIndex > 0.5 * SAMPLE_RATE) {
         console.log(
           "Sending segment",

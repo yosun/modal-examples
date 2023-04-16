@@ -20,7 +20,7 @@ const chatMachine = createMachine(
     states: {
       botGenerating: {
         on: {
-          GENERATION_DONE: { target: "botDone" },
+          GENERATION_DONE: { target: "botDone", actions: "resetTranscript" },
         },
       },
       botDone: {
@@ -49,20 +49,15 @@ const chatMachine = createMachine(
           [SILENT_DELAY]: {
             target: "botGenerating",
             actions: "incrementMessages",
+            cond: "nonEmptyTranscript",
           },
         },
       },
       waitingForTranscript: {
+        always: { cond: "hasNoPendingSegments", target: "userSilent" },
         on: {
           SEGMENT_RECVD: { actions: "segmentReceive" },
-          TRANSCRIPT_RECVD: [
-            {
-              cond: "hasNoPendingSegments",
-              target: "userSilent",
-              actions: "transcriptReceive",
-            },
-            { actions: "transcriptReceive" },
-          ],
+          TRANSCRIPT_RECVD: { actions: "transcriptReceive" },
         },
       },
     },
@@ -74,13 +69,16 @@ const chatMachine = createMachine(
       }),
       transcriptReceive: assign({
         pendingSegments: (context) => context.pendingSegments - 1,
-        transcriptLength: (context, event) =>
-          context.transcriptLength + event.data.length,
+        transcriptLength: (context, event) => {
+          console.log(context, event);
+          return context.transcriptLength + event.data.length;
+        },
       }),
-      resetPendingSegments: assign({ pendingSegments: () => 1 }),
+      resetPendingSegments: assign({ pendingSegments: 1 }),
       incrementMessages: assign({
         messages: (context) => context.messages + 1,
       }),
+      resetTranscript: assign({ transcriptLength: 0 }),
     },
     guards: {
       hasNoPendingSegments: (context) => context.pendingSegments === 0,
@@ -183,6 +181,50 @@ async function fetchTranscript(buffer) {
   return await response.json();
 }
 
+async function* fetchGeneration(noop, input, history) {
+  const body = noop ? { noop: true } : { input, history };
+
+  const response = await fetch("/generate", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new Error("Error occurred during submission: " + response.status);
+  }
+
+  if (noop) {
+    return;
+  }
+
+  const readableStream = response.body;
+  const decoder = new TextDecoder();
+
+  const reader = readableStream.getReader();
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    for (let message of decoder.decode(value).split("\n")) {
+      let [type, ...payload] = message.split(": ");
+      payload = payload.join(": ");
+
+      if (type == "text") {
+        yield { type: "text", payload };
+      } else if (type == "audio") {
+        yield { type: "audio", payload };
+      }
+    }
+  }
+
+  reader.releaseLock();
+}
+
 function App() {
   const [history, setHistory] = useState([]);
   const [fullMessage, setFullMessage] = useState(INITIAL_MESSAGE);
@@ -191,67 +233,44 @@ function App() {
   const recorderNodeRef = useRef(null);
   const playQueueRef = useRef(null);
 
-  // useEffect(() => {
-  //   const subscription = service.subscribe((state) => {
-  //     console.log("Transitioned to state:", state.value, state.context);
-  //   });
+  useEffect(() => {
+    const subscription = service.subscribe((state) => {
+      console.log("Transitioned to state:", state.value, state.context);
+    });
 
-  //   return subscription.unsubscribe;
-  // }, [service]);
+    return subscription.unsubscribe;
+  }, [service]);
 
   const generateResponse = useCallback(
-    async (input) => {
+    async (noop, input = "") => {
+      if (!noop) {
+        recorderNodeRef.current.stop();
+      }
+
       console.log("Generating response", input, history);
 
-      const warm = input.length === 0;
-      const body = warm ? { warm: true } : { input, history: history.slice(1) };
-
-      const response = await fetch("/generate", {
-        method: "POST",
-        body: JSON.stringify(body),
-        headers: { "Content-Type": "application/json" },
-      });
-
-      if (!response.ok) {
-        throw new Error("Error occurred during submission: " + response.status);
-      }
-
-      if (warm) {
-        return;
-      }
-
-      const readableStream = response.body;
-      const decoder = new TextDecoder();
-
-      const reader = readableStream.getReader();
       let firstAudioRecvd = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-          break;
-        }
-
-        for (let message of decoder.decode(value).split("\n")) {
-          let [type, ...payload] = message.split(": ");
-          payload = payload.join(": ");
-
-          if (type == "text") {
-            setFullMessage((m) => m + payload);
-          } else if (type == "audio") {
-            if (!firstAudioRecvd) {
-              playQueueRef.current.clear();
-              firstAudioRecvd = true;
-            }
-            playQueueRef.current.add(payload);
+      for await (let { type, payload } of fetchGeneration(
+        noop,
+        input,
+        history.slice(1)
+      )) {
+        if (type === "text") {
+          setFullMessage((m) => m + payload);
+        } else if (type === "audio") {
+          if (!firstAudioRecvd) {
+            playQueueRef.current.clear();
+            firstAudioRecvd = true;
           }
+          playQueueRef.current.add(payload);
         }
       }
+      console.log("Finished generating response");
 
-      reader.releaseLock();
-
-      send("GENERATION_DONE");
+      if (!noop) {
+        recorderNodeRef.current.start();
+        send("GENERATION_DONE");
+      }
     },
     [history]
   );
@@ -260,7 +279,7 @@ function App() {
     const transition = state.context.messages > history.length + 1;
 
     if (transition && state.matches("botGenerating")) {
-      generateResponse(fullMessage);
+      generateResponse(/* noop = */ false, fullMessage);
     }
 
     if (transition) {
@@ -280,7 +299,7 @@ function App() {
   async function onMount() {
     // Warm up GPU functions.
     onSegmentRecv(new Float32Array());
-    generateResponse("");
+    generateResponse(/* noop = */ true);
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 

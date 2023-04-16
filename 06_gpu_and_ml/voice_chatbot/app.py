@@ -36,7 +36,7 @@ def web():
     async def generate(request: Request):
         body = await request.json()
 
-        if "warm" in body:
+        if "noop" in body:
             llm.generate.spawn("")
             # Warm up 3 containers for now.
             for _ in range(3):
