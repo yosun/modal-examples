@@ -5,11 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Alpaca Chat</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/xstate@4/dist/xstate.js"></script>
+    <script src="https://unpkg.com/@xstate/react/dist/xstate-react.umd.min.js"></script>
+
     <link rel="stylesheet" href="/loaders.css" type="text/css" />
   </head>
 
   <body class="bg-gray-50">
     <noscript>You must have JavaScript enabled to use this app.</noscript>
-    <script type="module" src="/app.js"></script>
+    <script data-type="module" type="text/babel" src="/app.jsx"></script>
+    <div id="react"></div>
   </body>
 </html>
