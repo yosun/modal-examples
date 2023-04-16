@@ -107,7 +107,7 @@ function App() {
   const [recordingTimeoutId, setRecordingTimeoutId] = createSignal(null);
   const [recorderNode, setRecorderNode] = createSignal(null);
 
-  setInterval(() => {
+  function typeFast() {
     const c = chat();
     const lastChatMessage = c[c.length - 1];
     if (lastChatMessage.length < message().length) {
@@ -125,13 +125,11 @@ function App() {
         setMessage("");
         setState(State.USER_TALKING);
         const node = recorderNode();
-        if (node) {
-          recorderNode().start();
-        }
+        recorderNode().start();
       }
       setChat(newChat);
     }
-  }, TYPING_SPEED);
+  }
 
   const generateResponse = async (warm = false) => {
     const body = warm
@@ -224,8 +222,7 @@ function App() {
   };
 
   createEffect(() => {
-    if (state() == State.BOT_SILENT) {
-    }
+    console.log("State changed to", state());
   });
 
   const onTalking = async () => {
@@ -285,6 +282,7 @@ function App() {
     recorderNode.connect(context.destination);
 
     setPlayQueue(new PlayQueue(context));
+    setInterval(typeFast, TYPING_SPEED);
   });
 
   return html`
