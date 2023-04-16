@@ -33,7 +33,7 @@ function RecordingSpinner(props) {
   `;
 }
 
-const TYPING_SPEED = 30; // in milliseconds
+const TYPING_SPEED = 20; // in milliseconds
 const SILENT_DELAY = 3000; // in milliseconds
 
 const State = {
@@ -69,7 +69,7 @@ class PlayQueue {
     while (true) {
       response = await fetch(`/audio/${call_id}`);
       if (response.status === 202) {
-        console.log("Timed out fetching audio, retrying...");
+        continue;
       } else if (!response.ok) {
         throw new Error("Error occurred fetching audio: " + response.status);
       } else {
@@ -89,6 +89,11 @@ class PlayQueue {
       this.play();
     };
     source.start();
+  }
+
+  clear() {
+    // TODO: cancel calls on the backend somehow?
+    this.call_ids = [];
   }
 }
 
@@ -147,14 +152,20 @@ function App() {
       return;
     }
 
+    const m = message();
+    setChat((c) => {
+      const newChat = [...c, ""];
+      newChat[c.length - 1] = m;
+      return newChat;
+    });
     setMessage("");
-    setChat([...chat(), ""]);
     setState(State.BOT_TALKING);
 
     const readableStream = response.body;
     const decoder = new TextDecoder();
 
     const reader = readableStream.getReader();
+    let firstAudioRecvd = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -170,12 +181,17 @@ function App() {
         if (type == "text") {
           setMessage((m) => m + payload);
         } else if (type == "audio") {
+          if (!firstAudioRecvd) {
+            playQueue().clear();
+            firstAudioRecvd = true;
+          }
           playQueue().add(payload);
         }
       }
     }
 
     reader.releaseLock();
+    console.log("Done generating response");
 
     setState(State.BOT_SILENT);
   };
@@ -207,12 +223,10 @@ function App() {
     });
   };
 
-  createEffect((fired) => {
-    if (message() == "What is the meaning of life?" && fired == 0) {
-      onLongSilence();
+  createEffect(() => {
+    if (state() == State.BOT_SILENT) {
     }
-    return 1;
-  }, 0);
+  });
 
   const onTalking = async () => {
     setState((s) => {
@@ -220,7 +234,6 @@ function App() {
         console.log("Talking detected");
         clearTimeout(recordingTimeoutId());
         return State.USER_TALKING;
-        // setMessage("What is the meaning of life?");
       }
       return s;
     });
@@ -245,7 +258,6 @@ function App() {
     }
 
     const data = await response.json();
-    console.log(data, performance.now() - t0);
     setMessage((m) => m + data);
   };
 

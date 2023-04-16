@@ -5,6 +5,15 @@ import modal
 
 from .common import stub
 
+MODEL_NAME = "base.en"
+
+
+def download_model():
+    import whisper
+
+    whisper.load_model(MODEL_NAME)
+
+
 transcriber_image = (
     modal.Image.debian_slim()
     .apt_install("git", "ffmpeg")
@@ -12,6 +21,7 @@ transcriber_image = (
         "https://github.com/openai/whisper/archive/v20230314.tar.gz",
         "ffmpeg-python",
     )
+    .run_function(download_model)
 )
 
 
@@ -54,7 +64,7 @@ class Whisper:
 
         self.use_gpu = torch.cuda.is_available()
         device = "cuda" if self.use_gpu else "cpu"
-        self.model = whisper.load_model("base.en", device=device)
+        self.model = whisper.load_model(MODEL_NAME, device=device)
 
     @stub.function(
         gpu="A10G",

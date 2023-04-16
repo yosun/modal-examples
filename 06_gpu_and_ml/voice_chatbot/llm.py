@@ -5,7 +5,6 @@ import modal
 from .common import stub
 
 MODEL_NAME = "anon8231489123/vicuna-13b-GPTQ-4bit-128g"
-NUM_GPUS = 1
 
 
 def download_model():
@@ -46,6 +45,11 @@ stub.vicuna_image = (
 if stub.is_inside(stub.vicuna_image):
     t0 = time.time()
     import os
+    import warnings
+
+    warnings.filterwarnings(
+        "ignore", category=UserWarning, message="TypedStorage is deprecated"
+    )
 
     # This version of FastChat hard-codes a relative path for the model ("./model"),
     # making this necessary :(

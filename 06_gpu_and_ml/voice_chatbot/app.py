@@ -55,6 +55,10 @@ def web():
                     yield f"audio: {function_call.object_id}\n"
                     sentence = new_sentence
 
+            if sentence:
+                function_call = tts.speak.spawn(sentence)
+                yield f"audio: {function_call.object_id}\n"
+
         return StreamingResponse(
             generate(),
             media_type="text/event-stream",
