@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import modal
@@ -28,7 +29,7 @@ def web():
 
     @web_app.post("/transcribe")
     async def transcribe(request: Request):
-        return "What is your name?"
+        # return "Give me an itemized list of the best sushi in New York City?"
         bytes = await request.body()
         result = transcriber.transcribe_segment.call(bytes)
         return result["text"]
@@ -36,32 +37,42 @@ def web():
     @web_app.post("/generate")
     async def generate(request: Request):
         body = await request.json()
+        tts_enabled = body["tts"]
 
         if "noop" in body:
             llm.generate.spawn("")
             # Warm up 3 containers for now.
-            for _ in range(3):
-                tts.speak.spawn("")
+            if tts_enabled:
+                for _ in range(3):
+                    tts.speak.spawn("")
             return
 
-        def generate():
+        def gen():
             sentence = ""
 
             for segment in llm.generate.call(body["input"], body["history"]):
-                yield f"text: {segment}\n"
+                yield {"type": "text", "value": segment}
                 sentence += segment
                 if "." in sentence:
                     prev_sentence, new_sentence = sentence.rsplit(".", 1)
-                    function_call = tts.speak.spawn(prev_sentence)
-                    yield f"audio: {function_call.object_id}\n"
+                    if tts_enabled:
+                        function_call = tts.speak.spawn(prev_sentence)
+                        yield {
+                            "type": "audio",
+                            "value": function_call.object_id,
+                        }
                     sentence = new_sentence
 
-            if sentence:
+            if sentence and tts_enabled:
                 function_call = tts.speak.spawn(sentence)
-                yield f"audio: {function_call.object_id}\n"
+                yield {"type": "audio", "value": function_call.object_id}
+
+        def gen_serialized():
+            for i in gen():
+                yield json.dumps(i) + "\x1e"
 
         return StreamingResponse(
-            generate(),
+            gen_serialized(),
             media_type="text/event-stream",
         )
 

@@ -8,6 +8,12 @@ const { useMachine } = XStateReact;
 const SILENT_DELAY = 3000; // in milliseconds
 const INITIAL_MESSAGE =
   "Hi! I'm a language model running on Modal. Talk to me using your microphone.";
+const TTS_ENABLED = true;
+
+const MODELS = [
+  { id: "vicuna-13b-4bit", label: "Vicuna 13B (4-bit)" },
+  { id: "alpaca-lora-7b", label: "Alpaca LORA 7B" },
+];
 
 const chatMachine = createMachine(
   {
@@ -90,26 +96,72 @@ const chatMachine = createMachine(
   }
 );
 
-function Layout({ children }) {
+function Sidebar({ selected, onModelSelect }) {
   return (
-    <div className="absolute inset-0 bg-gray-50 px-2">
-      <div className="mx-auto max-w-md py-8 sm:py-16">
-        <main className="rounded-xl bg-white p-4 shadow-lg">{children}</main>
-      </div>
-    </div>
+    <nav className="bg-gray-900 w-[400px] flex flex-col h-full gap-2 p-2 text-gray-100">
+      <h1 className="text-4xl font-semibold text-center text-gray-600 ml-auto mr-auto flex gap-2 items-center justify-center h-20">
+        ChatModal
+        <span className="bg-orange-200 text-orange-900 py-0.5 px-1.5 text-xs rounded-md uppercase">
+          Plus
+        </span>
+      </h1>
+      {MODELS.map(({ id, label }) => (
+        <button
+          key={id}
+          className={
+            "py-2 items-center justify-center rounded-md cursor-pointer " +
+            (id == selected ? "bg-teal-800" : "hover:bg-teal-900")
+          }
+          onClick={() => onModelSelect(id)}
+        >
+          {label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function BotIcon() {
+  return (
+    <svg
+      className="w-8 h-8 min-w-8 min-h-8 fill-slate-300"
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 640 512"
+    >
+      {/*! Font Awesome Pro 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc.*/}
+      <path d="M320 0c17.7 0 32 14.3 32 32V96H472c39.8 0 72 32.2 72 72V440c0 39.8-32.2 72-72 72H168c-39.8 0-72-32.2-72-72V168c0-39.8 32.2-72 72-72H288V32c0-17.7 14.3-32 32-32zM208 384c-8.8 0-16 7.2-16 16s7.2 16 16 16h32c8.8 0 16-7.2 16-16s-7.2-16-16-16H208zm96 0c-8.8 0-16 7.2-16 16s7.2 16 16 16h32c8.8 0 16-7.2 16-16s-7.2-16-16-16H304zm96 0c-8.8 0-16 7.2-16 16s7.2 16 16 16h32c8.8 0 16-7.2 16-16s-7.2-16-16-16H400zM264 256a40 40 0 1 0 -80 0 40 40 0 1 0 80 0zm152 40a40 40 0 1 0 0-80 40 40 0 1 0 0 80zM48 224H64V416H48c-26.5 0-48-21.5-48-48V272c0-26.5 21.5-48 48-48zm544 0c26.5 0 48 21.5 48 48v96c0 26.5-21.5 48-48 48H576V224h16z" />
+    </svg>
+  );
+}
+
+function UserIcon() {
+  return (
+    <svg
+      className="w-8 h-8 min-w-8 min-h-8 fill-cyan-600"
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 448 512"
+    >
+      {/*! Font Awesome Pro 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc.*/}
+      <path d="M224 256A128 128 0 1 0 224 0a128 128 0 1 0 0 256zm-45.7 48C79.8 304 0 383.8 0 482.3C0 498.7 13.3 512 29.7 512H418.3c16.4 0 29.7-13.3 29.7-29.7C448 383.8 368.2 304 269.7 304H178.3z" />
+    </svg>
   );
 }
 
 function ChatMessage({ text, isUser }) {
   return (
-    <div className={"flex " + (isUser ? "justify-end" : "justify-start")}>
-      <div
-        className={
-          "rounded-[16px] px-3 py-1.5 " +
-          (isUser ? "bg-indigo-500 text-white ml-8" : "bg-gray-100 mr-8")
-        }
-      >
-        {text}
+    <div className="w-full">
+      <div className="text-base gap-4 p-4 flex m-auto">
+        <div className="items-center justify-center">
+          {!isUser ? <UserIcon /> : <BotIcon />}
+        </div>
+        <div
+          className={
+            "whitespace-pre-wrap rounded-[16px] px-3 py-1.5 text-gray-100 max-w-[600px] " +
+            (isUser ? "bg-gray-700" : "bg-cyan-700")
+          }
+        >
+          {text}
+        </div>
       </div>
     </div>
   );
@@ -187,7 +239,9 @@ async function fetchTranscript(buffer) {
 }
 
 async function* fetchGeneration(noop, input, history) {
-  const body = noop ? { noop: true } : { input, history };
+  const body = noop
+    ? { noop: true, tts: TTS_ENABLED }
+    : { input, history, tts: TTS_ENABLED };
 
   const response = await fetch("/generate", {
     method: "POST",
@@ -215,9 +269,13 @@ async function* fetchGeneration(noop, input, history) {
       break;
     }
 
-    for (let message of decoder.decode(value).split("\n")) {
-      let [type, ...payload] = message.split(": ");
-      payload = payload.join(": ");
+    for (let message of decoder.decode(value).split("\x1e")) {
+      if (message.length === 0) {
+        continue;
+      }
+
+      let { type, value: payload } = JSON.parse(message);
+      console.log("Received message", type, payload);
 
       if (type == "text") {
         yield { type: "text", payload };
@@ -234,6 +292,7 @@ function App() {
   const [history, setHistory] = useState([]);
   const [fullMessage, setFullMessage] = useState(INITIAL_MESSAGE);
   const [typedMessage, setTypedMessage] = useState("");
+  const [model, setModel] = useState(MODELS[0].id);
   const [state, send, service] = useMachine(chatMachine);
   const recorderNodeRef = useRef(null);
   const playQueueRef = useRef(null);
@@ -354,13 +413,22 @@ function App() {
     return () => clearInterval(intervalId);
   }, [tick]);
 
+  const onModelSelect = (id) => {
+    setModel(id);
+  };
+
   return (
-    <Layout>
-      {history.map((msg, i) => (
-        <ChatMessage key={i} text={msg} isUser={i % 2 == 1} />
-      ))}
-      <ChatMessage text={typedMessage} isUser={history.length % 2 == 1} />
-    </Layout>
+    <div className="min-w-full min-h-screen screen">
+      <div className="w-full h-screen flex">
+        <Sidebar selected={model} onModelSelect={onModelSelect} />
+        <main className="bg-gray-800 w-full flex flex-col items-center gap-6 pt-6 overflow-auto">
+          {history.map((msg, i) => (
+            <ChatMessage key={i} text={msg} isUser={i % 2 == 0} />
+          ))}
+          <ChatMessage text={typedMessage} isUser={history.length % 2 == 0} />
+        </main>
+      </div>
+    </div>
   );
 }
 
