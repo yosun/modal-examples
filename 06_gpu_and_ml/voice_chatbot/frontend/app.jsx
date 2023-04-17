@@ -160,7 +160,9 @@ class PlayQueue {
   }
 
   clear() {
-    // TODO: cancel calls on the backend somehow?
+    for (const call_id of this.call_ids) {
+      fetch(`/audio/${call_id}`, { method: "DELETE" });
+    }
     this.call_ids = [];
   }
 }
@@ -293,6 +295,7 @@ function App() {
     send("SEGMENT_RECVD");
     const data = await fetchTranscript(buffer);
     setFullMessage((m) => m + data);
+    console.log("before", data);
     send({ type: "TRANSCRIPT_RECVD", data });
   };
 
@@ -332,13 +335,13 @@ function App() {
     }
 
     if (typedMessage.length < fullMessage.length) {
-      const n = Math.round(Math.random() * 3) + 3;
+      const n = 1; // Math.round(Math.random() * 3) + 3;
       setTypedMessage(fullMessage.substring(0, typedMessage.length + n));
     }
   }, [typedMessage, fullMessage]);
 
   useEffect(() => {
-    const intervalId = setInterval(tick, 100);
+    const intervalId = setInterval(tick, 20);
     return () => clearInterval(intervalId);
   }, [tick]);
 

@@ -76,5 +76,13 @@ def web():
 
         return StreamingResponse(result, media_type="audio/wav")
 
+    @web_app.delete("/audio/{call_id}")
+    async def cancel_audio(call_id: str):
+        from modal.functions import FunctionCall
+
+        print("Cancelling", call_id)
+        function_call = FunctionCall.from_id(call_id)
+        function_call.cancel()
+
     web_app.mount("/", StaticFiles(directory="/assets", html=True))
     return web_app
