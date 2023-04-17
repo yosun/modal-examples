@@ -28,6 +28,7 @@ def web():
 
     @web_app.post("/transcribe")
     async def transcribe(request: Request):
+        return "What is your name?"
         bytes = await request.body()
         result = transcriber.transcribe_segment.call(bytes)
         return result["text"]

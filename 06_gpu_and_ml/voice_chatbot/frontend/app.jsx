@@ -7,14 +7,14 @@ const { useMachine } = XStateReact;
 
 const SILENT_DELAY = 3000; // in milliseconds
 const INITIAL_MESSAGE =
-  "Hi! I'm Alpaca running on Modal. Talk to me using your microphone.";
+  "Hi! I'm a language model running on Modal. Talk to me using your microphone.";
 
 const chatMachine = createMachine(
   {
     initial: "botDone",
     context: {
       pendingSegments: 0,
-      transcriptLength: 0,
+      transcript: "",
       messages: 1,
     },
     states: {
@@ -25,7 +25,10 @@ const chatMachine = createMachine(
       },
       botDone: {
         on: {
-          SOUND: { target: "userTalking", actions: "incrementMessages" },
+          SEGMENT_RECVD: {
+            target: "waitingForTranscript",
+            actions: ["resetPendingSegments", "incrementMessages"],
+          },
         },
       },
       userTalking: {
@@ -69,20 +72,20 @@ const chatMachine = createMachine(
       }),
       transcriptReceive: assign({
         pendingSegments: (context) => context.pendingSegments - 1,
-        transcriptLength: (context, event) => {
+        transcript: (context, event) => {
           console.log(context, event);
-          return context.transcriptLength + event.data.length;
+          return context.transcript + event.transcript;
         },
       }),
       resetPendingSegments: assign({ pendingSegments: 1 }),
       incrementMessages: assign({
         messages: (context) => context.messages + 1,
       }),
-      resetTranscript: assign({ transcriptLength: 0 }),
+      resetTranscript: assign({ transcript: "" }),
     },
     guards: {
       hasNoPendingSegments: (context) => context.pendingSegments === 0,
-      nonEmptyTranscript: (context) => context.transcriptLength > 0,
+      nonEmptyTranscript: (context) => context.transcript.length > 0,
     },
   }
 );
@@ -236,8 +239,12 @@ function App() {
   const playQueueRef = useRef(null);
 
   useEffect(() => {
-    const subscription = service.subscribe((state) => {
+    const subscription = service.subscribe((state, event) => {
       console.log("Transitioned to state:", state.value, state.context);
+      // TODO: race
+      if (event && event.type == "TRANSCRIPT_RECVD") {
+        setFullMessage((m) => m + event.transcript);
+      }
     });
 
     return subscription.unsubscribe;
@@ -291,13 +298,15 @@ function App() {
     }
   }, [state, history, fullMessage]);
 
-  const onSegmentRecv = async (buffer) => {
-    send("SEGMENT_RECVD");
-    const data = await fetchTranscript(buffer);
-    setFullMessage((m) => m + data);
-    console.log("before", data);
-    send({ type: "TRANSCRIPT_RECVD", data });
-  };
+  const onSegmentRecv = useCallback(
+    async (buffer) => {
+      send("SEGMENT_RECVD");
+      // TODO: these can get reordered
+      const data = await fetchTranscript(buffer);
+      send({ type: "TRANSCRIPT_RECVD", transcript: data });
+    },
+    [history]
+  );
 
   async function onMount() {
     // Warm up GPU functions.
