@@ -44,7 +44,11 @@ const chatMachine = createMachine(
           },
           SEGMENT_RECVD: {
             target: "userTalking",
-            actions: ["resetPendingSegments", "incrementMessages"],
+            actions: [
+              "resetPendingSegments",
+              "segmentReceive",
+              "incrementMessages",
+            ],
           },
         },
       },
@@ -88,7 +92,7 @@ const chatMachine = createMachine(
           return context.transcript + event.transcript;
         },
       }),
-      resetPendingSegments: assign({ pendingSegments: 1 }),
+      resetPendingSegments: assign({ pendingSegments: 0 }),
       incrementMessages: assign({
         messages: (context) => context.messages + 1,
       }),
@@ -429,10 +433,14 @@ function App() {
 
   const onSegmentRecv = useCallback(
     async (buffer) => {
-      send("SEGMENT_RECVD");
+      if (buffer.length) {
+        send("SEGMENT_RECVD");
+      }
       // TODO: these can get reordered
       const data = await fetchTranscript(buffer);
-      send({ type: "TRANSCRIPT_RECVD", transcript: data });
+      if (buffer.length) {
+        send({ type: "TRANSCRIPT_RECVD", transcript: data });
+      }
     },
     [history]
   );
