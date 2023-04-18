@@ -10,6 +10,13 @@ const INITIAL_MESSAGE =
   "Hi! I'm a language model running on Modal. Talk to me using your microphone.";
 const TTS_ENABLED = true;
 
+const INDICATOR_TYPE = {
+  TALKING: "talking",
+  SILENT: "silent",
+  GENERATING: "generating",
+  IDLE: "idle",
+};
+
 const MODELS = [
   { id: "vicuna-13b-4bit", label: "Vicuna 13B (4-bit)" },
   { id: "alpaca-lora-7b", label: "Alpaca LORA 7B" },
@@ -31,8 +38,12 @@ const chatMachine = createMachine(
       },
       botDone: {
         on: {
+          TYPING_DONE: {
+            target: "userSilent",
+            actions: ["resetPendingSegments", "incrementMessages"],
+          },
           SEGMENT_RECVD: {
-            target: "waitingForTranscript",
+            target: "userTalking",
             actions: ["resetPendingSegments", "incrementMessages"],
           },
         },
@@ -40,34 +51,28 @@ const chatMachine = createMachine(
       userTalking: {
         on: {
           SILENCE: { target: "userSilent" },
-          SEGMENT_RECVD: {
-            target: "waitingForTranscript",
-            actions: "resetPendingSegments",
-          },
+          SEGMENT_RECVD: { actions: "segmentReceive" },
+          TRANSCRIPT_RECVD: { actions: "transcriptReceive" },
         },
       },
       userSilent: {
         on: {
           SOUND: { target: "userTalking" },
-          SEGMENT_RECVD: {
-            target: "waitingForTranscript",
-            actions: "resetPendingSegments",
-          },
-        },
-        after: {
-          [SILENT_DELAY]: {
-            target: "botGenerating",
-            actions: "incrementMessages",
-            cond: "nonEmptyTranscript",
-          },
-        },
-      },
-      waitingForTranscript: {
-        always: { cond: "hasNoPendingSegments", target: "userSilent" },
-        on: {
           SEGMENT_RECVD: { actions: "segmentReceive" },
           TRANSCRIPT_RECVD: { actions: "transcriptReceive" },
         },
+        after: [
+          {
+            delay: SILENT_DELAY,
+            target: "botGenerating",
+            actions: "incrementMessages",
+            cond: "canGenerate",
+          },
+          {
+            delay: SILENT_DELAY,
+            target: "userSilent",
+          },
+        ],
       },
     },
   },
@@ -90,8 +95,10 @@ const chatMachine = createMachine(
       resetTranscript: assign({ transcript: "" }),
     },
     guards: {
-      hasNoPendingSegments: (context) => context.pendingSegments === 0,
-      nonEmptyTranscript: (context) => context.transcript.length > 0,
+      canGenerate: (context) => {
+        console.log(context);
+        return context.pendingSegments === 0 && context.transcript.length > 0;
+      },
     },
   }
 );
@@ -147,20 +154,74 @@ function UserIcon() {
   );
 }
 
-function ChatMessage({ text, isUser }) {
+function TalkingSpinner() {
+  return (
+    <div className={"flex items-center justify-center"}>
+      <div className="talking [&>span]:bg-orange-500">
+        {" "}
+        <span /> <span /> <span />{" "}
+      </div>
+    </div>
+  );
+}
+
+function SilentIcon() {
+  return (
+    <div className={"flex items-center justify-center"}>
+      <div className="silent [&>span]:bg-orange-500">
+        {" "}
+        <span /> <span /> <span />{" "}
+      </div>
+    </div>
+  );
+}
+
+function LoadingSpinner() {
+  return (
+    <div className="scale-[0.2] w-6 h-6 flex items-center justify-center">
+      <div className="lds-spinner">
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+      </div>
+    </div>
+  );
+}
+
+function ChatMessage({ text, isUser, indicator }) {
   return (
     <div className="w-full">
       <div className="text-base gap-4 p-4 flex m-auto">
-        <div className="items-center justify-center">
-          {!isUser ? <UserIcon /> : <BotIcon />}
+        <div className="flex flex-col gap-2">
+          <div className="items-center justify-center">
+            {isUser ? <UserIcon /> : <BotIcon />}
+          </div>
+          {indicator == INDICATOR_TYPE.TALKING && <TalkingSpinner />}
+          {indicator == INDICATOR_TYPE.GENERATING && <LoadingSpinner />}
+          {/* {indicator == INDICATOR_TYPE.SILENT && <SilentIcon />} */}
         </div>
-        <div
-          className={
-            "whitespace-pre-wrap rounded-[16px] px-3 py-1.5 text-gray-100 max-w-[600px] " +
-            (isUser ? "bg-gray-700" : "bg-cyan-700")
-          }
-        >
-          {text}
+        <div>
+          <div
+            className={
+              "whitespace-pre-wrap rounded-[16px] px-3 py-1.5 text-gray-100 max-w-[600px]" +
+              (isUser ? " bg-gray-700" : " bg-cyan-700") +
+              (!text ? " bg-gray-600 text-sm italic" : "")
+            }
+          >
+            {text ||
+              (isUser
+                ? "Speak into your microphone to talk to the bot..."
+                : "Bot is typing...")}
+          </div>
         </div>
       </div>
     </div>
@@ -168,10 +229,11 @@ function ChatMessage({ text, isUser }) {
 }
 
 class PlayQueue {
-  constructor(audioContext) {
+  constructor(audioContext, onChange) {
     this.call_ids = [];
-    this.isPlaying = false;
+    this.state = INDICATOR_TYPE.IDLE;
     this.audioContext = audioContext;
+    this._onChange = onChange;
   }
 
   async add(call_id) {
@@ -180,11 +242,13 @@ class PlayQueue {
   }
 
   async play() {
-    if (this.isPlaying || this.call_ids.length === 0) {
+    if (this.state != INDICATOR_TYPE.IDLE || this.call_ids.length === 0) {
       return;
     }
 
-    this.isPlaying = true;
+    this.state = INDICATOR_TYPE.GENERATING;
+    this._onChange(this.state);
+
     const call_id = this.call_ids.shift();
     console.log("Fetching audio for call", call_id);
 
@@ -208,9 +272,13 @@ class PlayQueue {
     source.connect(this.audioContext.destination);
 
     source.onended = () => {
-      this.isPlaying = false;
+      this.state = INDICATOR_TYPE.IDLE;
+      this._onChange(this.state);
       this.play();
     };
+
+    this.state = INDICATOR_TYPE.TALKING;
+    this._onChange(this.state);
     source.start();
   }
 
@@ -275,7 +343,6 @@ async function* fetchGeneration(noop, input, history) {
       }
 
       let { type, value: payload } = JSON.parse(message);
-      console.log("Received message", type, payload);
 
       if (type == "text") {
         yield { type: "text", payload };
@@ -293,6 +360,7 @@ function App() {
   const [fullMessage, setFullMessage] = useState(INITIAL_MESSAGE);
   const [typedMessage, setTypedMessage] = useState("");
   const [model, setModel] = useState(MODELS[0].id);
+  const [botIndicator, setBotIndicator] = useState(INDICATOR_TYPE.IDLE);
   const [state, send, service] = useMachine(chatMachine);
   const recorderNodeRef = useRef(null);
   const playQueueRef = useRef(null);
@@ -300,9 +368,11 @@ function App() {
   useEffect(() => {
     const subscription = service.subscribe((state, event) => {
       console.log("Transitioned to state:", state.value, state.context);
-      // TODO: race
+
       if (event && event.type == "TRANSCRIPT_RECVD") {
-        setFullMessage((m) => m + event.transcript);
+        setFullMessage(
+          (m) => m + (m ? event.transcript : event.transcript.trimStart())
+        );
       }
     });
 
@@ -390,12 +460,16 @@ function App() {
     source.connect(recorderNode);
     recorderNode.connect(context.destination);
 
-    playQueueRef.current = new PlayQueue(context);
+    playQueueRef.current = new PlayQueue(context, setBotIndicator);
   }
 
   useEffect(() => {
     onMount();
   }, []);
+
+  useEffect(() => {
+    console.log("Bot indicator changed", botIndicator);
+  }, [botIndicator]);
 
   const tick = useCallback(() => {
     if (!recorderNodeRef.current) {
@@ -405,6 +479,10 @@ function App() {
     if (typedMessage.length < fullMessage.length) {
       const n = 1; // Math.round(Math.random() * 3) + 3;
       setTypedMessage(fullMessage.substring(0, typedMessage.length + n));
+
+      if (typedMessage.length + n == fullMessage.length) {
+        send("TYPING_DONE");
+      }
     }
   }, [typedMessage, fullMessage]);
 
@@ -417,15 +495,35 @@ function App() {
     setModel(id);
   };
 
+  const isUserLast = history.length % 2 == 1;
+  let userIndicator = INDICATOR_TYPE.IDLE;
+
+  if (isUserLast) {
+    userIndicator = state.matches("userTalking")
+      ? INDICATOR_TYPE.TALKING
+      : INDICATOR_TYPE.SILENT;
+  }
+
   return (
     <div className="min-w-full min-h-screen screen">
       <div className="w-full h-screen flex">
         <Sidebar selected={model} onModelSelect={onModelSelect} />
         <main className="bg-gray-800 w-full flex flex-col items-center gap-6 pt-6 overflow-auto">
           {history.map((msg, i) => (
-            <ChatMessage key={i} text={msg} isUser={i % 2 == 0} />
+            <ChatMessage
+              key={i}
+              text={msg}
+              isUser={i % 2 == 1}
+              indicator={
+                isUserLast && i == history.length - 1 ? botIndicator : undefined
+              }
+            />
           ))}
-          <ChatMessage text={typedMessage} isUser={history.length % 2 == 0} />
+          <ChatMessage
+            text={typedMessage}
+            isUser={isUserLast}
+            indicator={isUserLast ? userIndicator : botIndicator}
+          />
         </main>
       </div>
     </div>

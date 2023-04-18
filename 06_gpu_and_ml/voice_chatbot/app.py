@@ -10,6 +10,8 @@ from .tts import Tortoise
 
 static_path = Path(__file__).with_name("frontend").resolve()
 
+PUNCTUATION = [".", "?", "!", ":", ";", "*"]
+
 
 @stub.function(
     mounts=[modal.Mount.from_local_dir(static_path, remote_path="/assets")],
@@ -53,15 +55,17 @@ def web():
             for segment in llm.generate.call(body["input"], body["history"]):
                 yield {"type": "text", "value": segment}
                 sentence += segment
-                if "." in sentence:
-                    prev_sentence, new_sentence = sentence.rsplit(".", 1)
-                    if tts_enabled:
-                        function_call = tts.speak.spawn(prev_sentence)
-                        yield {
-                            "type": "audio",
-                            "value": function_call.object_id,
-                        }
-                    sentence = new_sentence
+
+                for p in PUNCTUATION:
+                    if p in sentence:
+                        prev_sentence, new_sentence = sentence.rsplit(p, 1)
+                        if tts_enabled:
+                            function_call = tts.speak.spawn(prev_sentence)
+                            yield {
+                                "type": "audio",
+                                "value": function_call.object_id,
+                            }
+                        sentence = new_sentence
 
             if sentence and tts_enabled:
                 function_call = tts.speak.spawn(sentence)

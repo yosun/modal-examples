@@ -148,7 +148,7 @@ class StableDiffusion:
         ).to("cuda")
         self.pipe.enable_xformers_memory_efficient_attention()
 
-    @stub.function(gpu="A10G")
+    @stub.function(gpu="A100", cloud="gcp")
     def run_inference(
         self, prompt: str, steps: int = 20, batch_size: int = 4
     ) -> list[bytes]:

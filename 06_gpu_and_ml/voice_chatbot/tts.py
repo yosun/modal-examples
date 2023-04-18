@@ -86,6 +86,7 @@ class Tortoise:
         one-shot synthesis.
         """
 
+        text = text.strip()
         if not text:
             return
 

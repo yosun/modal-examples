@@ -1,6 +1,9 @@
-const SILENCE_THRESHOLD = 0.02;
+const SILENCE_THRESHOLD = 0.015;
 const SAMPLE_RATE = 48000;
+const CHANNEL_DATA_LENGTH = 128;
 const MAX_SEGMENT_LENGTH = 10; // seconds
+const MIN_TALKING_TIME = 2; // seconds
+const AMPLITUDE_WINDOW = 0.5; // seconds
 
 class WorkletProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -9,18 +12,25 @@ class WorkletProcessor extends AudioWorkletProcessor {
     this._buffer = new Float32Array(this._bufferSize);
     this._writeIndex = 0;
 
-    this._amplitudeHistorySize = 180; // 128 * 200 / 48000 = ~0.5s
+    this._amplitudeHistorySize = Math.floor(
+      (AMPLITUDE_WINDOW * SAMPLE_RATE) / CHANNEL_DATA_LENGTH
+    );
     this._lastAmplitudes = new Array();
     this._amplitudeSum = 0;
     this._stopped = false;
-    this._lastEvent = null;
+    this._lastEventState = null;
+    this._lastEventTime = new Date();
+    this._talkingTime = 0;
 
     this.port.onmessage = (event) => {
       if (event.data.type === "stop") {
         this._stopped = true;
       } else if (event.data.type === "start") {
+        this._talkingTime = 0;
         this._writeIndex = 0;
         this._stopped = false;
+        this._lastEventState = null;
+        this._lastEventTime = new Date();
       }
     };
   }
@@ -49,13 +59,15 @@ class WorkletProcessor extends AudioWorkletProcessor {
     const remainingBufferSize = this._bufferSize - this._writeIndex;
 
     if (averageAmplitude > SILENCE_THRESHOLD) {
-      if (this._lastEvent !== "talking") {
-        this._lastEvent = "talking";
+      if (this._lastEventState !== "talking") {
+        this._lastEventState = "talking";
         this.port.postMessage({ type: "talking" });
       }
     } else {
-      if (this._lastEvent !== "silence") {
-        this._lastEvent = "silence";
+      if (this._lastEventState !== "silence") {
+        this._talkingTime += (new Date() - this._lastEventTime) / 1000;
+        this._lastEventState = "silence";
+        this._lastEventTime = new Date();
         this.port.postMessage({ type: "silence" });
       }
     }
@@ -63,11 +75,11 @@ class WorkletProcessor extends AudioWorkletProcessor {
     // If we have a silence or are running out of buffer space, send everything
     // we have if it's long enough, and then reset the buffer.
     if (
-      averageAmplitude <= SILENCE_THRESHOLD ||
+      (averageAmplitude <= SILENCE_THRESHOLD &&
+        this._talkingTime > MIN_TALKING_TIME) ||
       remainingBufferSize < channelData.length
     ) {
-      // 0.5 second minimum
-      if (this._writeIndex > 0.5 * SAMPLE_RATE) {
+      if (this._talkingTime > MIN_TALKING_TIME) {
         console.log(
           "Sending segment",
           averageAmplitude,
@@ -79,6 +91,8 @@ class WorkletProcessor extends AudioWorkletProcessor {
       }
       this._buffer = new Float32Array(this._bufferSize);
       this._writeIndex = 0;
+      this._talkingTime = 0;
+      this._lastEventTime = new Date();
     }
 
     return true;
