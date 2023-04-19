@@ -6,8 +6,9 @@ const { createMachine, assign } = XState;
 const { useMachine } = XStateReact;
 
 const SILENT_DELAY = 3000; // in milliseconds
+const CANCEL_OLD_AUDIO = false; // TODO: set this to true after cancellations don't terminate containers.
 const INITIAL_MESSAGE =
-  "Hi! I'm a language model running on Modal. Talk to me using your microphone, and turn your speaker volume up.";
+  "Hi! I'm a language model running on Modal. Talk to me using your microphone, and remember to turn your speaker volume up!";
 const TTS_ENABLED = true;
 
 const INDICATOR_TYPE = {
@@ -232,37 +233,55 @@ function ChatMessage({ text, isUser, indicator }) {
 class PlayQueue {
   constructor(audioContext, onChange) {
     this.call_ids = [];
-    this.state = INDICATOR_TYPE.IDLE;
     this.audioContext = audioContext;
     this._onChange = onChange;
+    this._isProcessing = false;
+    this._indicators = {};
   }
 
-  async add(call_id) {
-    this.call_ids.push(call_id);
+  async add(item) {
+    this.call_ids.push(item);
     this.play();
   }
 
+  _updateState(idx, indicator) {
+    this._indicators[idx] = indicator;
+    this._onChange(this._indicators);
+  }
+
   async play() {
-    if (this.state != INDICATOR_TYPE.IDLE || this.call_ids.length === 0) {
+    if (this._isProcessing || this.call_ids.length === 0) {
       return;
     }
 
-    this.state = INDICATOR_TYPE.GENERATING;
-    this._onChange(this.state);
+    this._isProcessing = true;
 
-    const call_id = this.call_ids.shift();
-    console.log("Fetching audio for call", call_id);
+    const [call_id, idx] = this.call_ids.shift();
+    this._updateState(idx, INDICATOR_TYPE.GENERATING);
+    console.log("Fetching audio for call", call_id, idx);
 
     let response;
+    let success = false;
     while (true) {
       response = await fetch(`/audio/${call_id}`);
       if (response.status === 202) {
         continue;
+      } else if (response.status === 204) {
+        console.error("No audio found for call: " + call_id);
+        break;
       } else if (!response.ok) {
-        throw new Error("Error occurred fetching audio: " + response.status);
+        console.error("Error occurred fetching audio: " + response.status);
       } else {
+        success = true;
         break;
       }
+    }
+
+    if (!success) {
+      this._updateState(idx, INDICATOR_TYPE.IDLE);
+      this._isProcessing = false;
+      this.play();
+      return;
     }
 
     const arrayBuffer = await response.arrayBuffer();
@@ -273,13 +292,12 @@ class PlayQueue {
     source.connect(this.audioContext.destination);
 
     source.onended = () => {
-      this.state = INDICATOR_TYPE.IDLE;
-      this._onChange(this.state);
+      this._updateState(idx, INDICATOR_TYPE.IDLE);
+      this._isProcessing = false;
       this.play();
     };
 
-    this.state = INDICATOR_TYPE.TALKING;
-    this._onChange(this.state);
+    this._updateState(idx, INDICATOR_TYPE.TALKING);
     source.start();
   }
 
@@ -301,7 +319,7 @@ async function fetchTranscript(buffer) {
   });
 
   if (!response.ok) {
-    throw new Error("Error occurred during transcription: " + response.status);
+    console.error("Error occurred during transcription: " + response.status);
   }
 
   return await response.json();
@@ -319,7 +337,7 @@ async function* fetchGeneration(noop, input, history) {
   });
 
   if (!response.ok) {
-    throw new Error("Error occurred during submission: " + response.status);
+    console.error("Error occurred during submission: " + response.status);
   }
 
   if (noop) {
@@ -361,7 +379,7 @@ function App() {
   const [fullMessage, setFullMessage] = useState(INITIAL_MESSAGE);
   const [typedMessage, setTypedMessage] = useState("");
   const [model, setModel] = useState(MODELS[0].id);
-  const [botIndicator, setBotIndicator] = useState(INDICATOR_TYPE.IDLE);
+  const [botIndicators, setBotIndicators] = useState({});
   const [state, send, service] = useMachine(chatMachine);
   const recorderNodeRef = useRef(null);
   const playQueueRef = useRef(null);
@@ -397,11 +415,11 @@ function App() {
         if (type === "text") {
           setFullMessage((m) => m + payload);
         } else if (type === "audio") {
-          if (!firstAudioRecvd) {
+          if (!firstAudioRecvd && CANCEL_OLD_AUDIO) {
             playQueueRef.current.clear();
             firstAudioRecvd = true;
           }
-          playQueueRef.current.add(payload);
+          playQueueRef.current.add([payload, history.length + 1]);
         }
       }
       console.log("Finished generating response");
@@ -465,16 +483,12 @@ function App() {
     source.connect(recorderNode);
     recorderNode.connect(context.destination);
 
-    playQueueRef.current = new PlayQueue(context, setBotIndicator);
+    playQueueRef.current = new PlayQueue(context, setBotIndicators);
   }
 
   useEffect(() => {
     onMount();
   }, []);
-
-  useEffect(() => {
-    console.log("Bot indicator changed", botIndicator);
-  }, [botIndicator]);
 
   const tick = useCallback(() => {
     if (!recorderNodeRef.current) {
@@ -509,6 +523,10 @@ function App() {
       : INDICATOR_TYPE.SILENT;
   }
 
+  useEffect(() => {
+    console.log("Bot indicator changed", botIndicators);
+  }, [botIndicators]);
+
   return (
     <div className="min-w-full min-h-screen screen">
       <div className="w-full h-screen flex">
@@ -519,15 +537,15 @@ function App() {
               key={i}
               text={msg}
               isUser={i % 2 == 1}
-              indicator={
-                isUserLast && i == history.length - 1 ? botIndicator : undefined
-              }
+              indicator={i % 2 == 0 && botIndicators[i]}
             />
           ))}
           <ChatMessage
             text={typedMessage}
             isUser={isUserLast}
-            indicator={isUserLast ? userIndicator : botIndicator}
+            indicator={
+              isUserLast ? userIndicator : botIndicators[history.length]
+            }
           />
         </main>
       </div>

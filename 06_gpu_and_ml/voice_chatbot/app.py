@@ -90,6 +90,9 @@ def web():
         except TimeoutError:
             return Response(status_code=202)
 
+        if result is None:
+            return Response(status_code=204)
+
         return StreamingResponse(result, media_type="audio/wav")
 
     @web_app.delete("/audio/{call_id}")
