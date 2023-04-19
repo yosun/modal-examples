@@ -7,7 +7,7 @@ const { useMachine } = XStateReact;
 
 const SILENT_DELAY = 3000; // in milliseconds
 const INITIAL_MESSAGE =
-  "Hi! I'm a language model running on Modal. Talk to me using your microphone.";
+  "Hi! I'm a language model running on Modal. Talk to me using your microphone, and turn your speaker volume up.";
 const TTS_ENABLED = true;
 
 const INDICATOR_TYPE = {
@@ -19,7 +19,7 @@ const INDICATOR_TYPE = {
 
 const MODELS = [
   { id: "vicuna-13b-4bit", label: "Vicuna 13B (4-bit)" },
-  { id: "alpaca-lora-7b", label: "Alpaca LORA 7B" },
+  // { id: "alpaca-lora-7b", label: "Alpaca LORA 7B" },
 ];
 
 const chatMachine = createMachine(
@@ -109,10 +109,10 @@ const chatMachine = createMachine(
 
 function Sidebar({ selected, onModelSelect }) {
   return (
-    <nav className="bg-gray-900 w-[400px] flex flex-col h-full gap-2 p-2 text-gray-100">
-      <h1 className="text-4xl font-semibold text-center text-gray-600 ml-auto mr-auto flex gap-2 items-center justify-center h-20">
+    <nav className="bg-zinc-900 w-[400px] flex flex-col h-full gap-2 p-2 text-gray-100">
+      <h1 className="text-4xl font-semibold text-center text-zinc-200 ml-auto mr-auto flex gap-2 items-center justify-center h-20">
         ChatModal
-        <span className="bg-orange-200 text-orange-900 py-0.5 px-1.5 text-xs rounded-md uppercase">
+        <span className="bg-yellow-300 text-yellow-900 py-0.5 px-1.5 text-xs rounded-md uppercase">
           Plus
         </span>
       </h1>
@@ -120,14 +120,23 @@ function Sidebar({ selected, onModelSelect }) {
         <button
           key={id}
           className={
-            "py-2 items-center justify-center rounded-md cursor-pointer " +
-            (id == selected ? "bg-teal-800" : "hover:bg-teal-900")
+            "py-2 items-center justify-center rounded-md cursor-pointer border border-white/20 hover:bg-white/10 hover:text-zinc-200 " +
+            (id == selected
+              ? "bg-opacity-10 bg-primary ring-1 ring-primary text-zinc-200"
+              : "text-zinc-400 ")
           }
           onClick={() => onModelSelect(id)}
         >
           {label}
         </button>
       ))}
+      <button
+        className="py-2 items-center justify-center rounded-md cursor-pointer border border-white/20 pointer-events-none"
+        onClick={() => onModelSelect(id)}
+        disabled
+      >
+        More coming soon!
+      </button>
     </nav>
   );
 }
@@ -135,7 +144,7 @@ function Sidebar({ selected, onModelSelect }) {
 function BotIcon() {
   return (
     <svg
-      className="w-8 h-8 min-w-8 min-h-8 fill-slate-300"
+      className="w-8 h-8 min-w-8 min-h-8 fill-primary"
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 640 512"
     >
@@ -148,7 +157,7 @@ function BotIcon() {
 function UserIcon() {
   return (
     <svg
-      className="w-8 h-8 min-w-8 min-h-8 fill-cyan-600"
+      className="w-8 h-8 min-w-8 min-h-8 fill-yellow-500"
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 448 512"
     >
@@ -158,21 +167,14 @@ function UserIcon() {
   );
 }
 
-function TalkingSpinner() {
+function TalkingSpinner({ isUser }) {
   return (
     <div className={"flex items-center justify-center"}>
-      <div className="talking [&>span]:bg-orange-500">
-        {" "}
-        <span /> <span /> <span />{" "}
-      </div>
-    </div>
-  );
-}
-
-function SilentIcon() {
-  return (
-    <div className={"flex items-center justify-center"}>
-      <div className="silent [&>span]:bg-orange-500">
+      <div
+        className={
+          "talking [&>span]:" + (isUser ? "bg-yellow-500" : "bg-primary")
+        }
+      >
         {" "}
         <span /> <span /> <span />{" "}
       </div>
@@ -183,19 +185,10 @@ function SilentIcon() {
 function LoadingSpinner() {
   return (
     <div className="scale-[0.2] w-6 h-6 flex items-center justify-center">
-      <div className="lds-spinner">
-        <div></div>
-        <div></div>
-        <div></div>
-        <div></div>
-        <div></div>
-        <div></div>
-        <div></div>
-        <div></div>
-        <div></div>
-        <div></div>
-        <div></div>
-        <div></div>
+      <div className="lds-spinner [&>div:after]:bg-zinc-200">
+        {[...Array(12)].map((_, i) => (
+          <div key={i}></div>
+        ))}
       </div>
     </div>
   );
@@ -209,16 +202,20 @@ function ChatMessage({ text, isUser, indicator }) {
           <div className="items-center justify-center">
             {isUser ? <UserIcon /> : <BotIcon />}
           </div>
-          {indicator == INDICATOR_TYPE.TALKING && <TalkingSpinner />}
+          {indicator == INDICATOR_TYPE.TALKING && (
+            <TalkingSpinner isUser={isUser} />
+          )}
           {indicator == INDICATOR_TYPE.GENERATING && <LoadingSpinner />}
-          {/* {indicator == INDICATOR_TYPE.SILENT && <SilentIcon />} */}
         </div>
         <div>
           <div
             className={
-              "whitespace-pre-wrap rounded-[16px] px-3 py-1.5 text-gray-100 max-w-[600px]" +
-              (isUser ? " bg-gray-700" : " bg-cyan-700") +
-              (!text ? " bg-gray-600 text-sm italic" : "")
+              "whitespace-pre-wrap rounded-[16px] px-3 py-1.5 max-w-[600px] bg-zinc-800 border " +
+              (!text
+                ? " pulse text-sm text-zinc-300 border-gray-600"
+                : isUser
+                ? " text-zinc-100 border-yellow-500"
+                : " text-zinc-100 border-primary")
             }
           >
             {text ||
@@ -516,7 +513,7 @@ function App() {
     <div className="min-w-full min-h-screen screen">
       <div className="w-full h-screen flex">
         <Sidebar selected={model} onModelSelect={onModelSelect} />
-        <main className="bg-gray-800 w-full flex flex-col items-center gap-6 pt-6 overflow-auto">
+        <main className="bg-zinc-800 w-full flex flex-col items-center gap-3 pt-6 overflow-auto">
           {history.map((msg, i) => (
             <ChatMessage
               key={i}
