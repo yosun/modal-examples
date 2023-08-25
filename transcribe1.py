@@ -35,7 +35,7 @@ def transcribe():
     model = WhisperModel(MODEL_SIZE, device="cuda", compute_type="float16")
 
     subprocess.run(
-        "curl -o audio.mp3 -sSfLO https://upload.wikimedia.org/wikipedia/commons/5/5e/Ada_Lovelace_%28As_Told_By_U.S._Chief_Technology_Officer_Megan_Smith%29.mp3",
+        "curl -o audio.mp3 -sSfLO https://api.substack.com/feed/podcast/136047711/48d981d835799b970867b03c1ec3ff2a.mp3",
         shell=True,
     )
     segments, info = model.transcribe("audio.mp3", beam_size=5)
