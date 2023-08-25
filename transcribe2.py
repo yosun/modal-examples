@@ -133,4 +133,5 @@ def transcribe_episode(audio_url: str = DEFAULT_AUDIO_URL):
     for result in transcribe.map(
         segment_gen, kwargs=dict(audio_filepath=output_path)
     ):
-        pass
+        for segment in result:
+            print(segment.text)
