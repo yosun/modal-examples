@@ -15,9 +15,10 @@
 
 # ## Basic setup
 
+import time
 from pathlib import Path
 
-from modal import Image, Mount, Stub, asgi_app, gpu, method
+from modal import Image, Mount, Stub, asgi_app, method
 
 # ## Define a container image
 #
@@ -65,8 +66,11 @@ stub = Stub("stable-diffusion-xl", image=image)
 # To avoid excessive cold-starts, we set the idle timeout to 240 seconds, meaning once a GPU has loaded the model it will stay
 # online for 4 minutes before spinning down. This can be adjusted for cost/experience trade-offs.
 
+CLOUD = "oci"
+GPU = "A100"
 
-@stub.cls(gpu=gpu.A10G(), container_idle_timeout=240)
+
+@stub.cls(gpu="A100", container_idle_timeout=240, cloud=CLOUD)
 class Model:
     def __enter__(self):
         import torch
@@ -99,27 +103,38 @@ class Model:
 
     @method()
     def inference(self, prompt, n_steps=24, high_noise_frac=0.8):
-        negative_prompt = "disfigured, ugly, deformed"
-        image = self.base(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            num_inference_steps=n_steps,
-            denoising_end=high_noise_frac,
-            output_type="latent",
-        ).images
-        image = self.refiner(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            num_inference_steps=n_steps,
-            denoising_start=high_noise_frac,
-            image=image,
-        ).images[0]
+        times = []
+        for i in range(10):
+            t0 = time.time()
+            negative_prompt = "disfigured, ugly, deformed"
+            image = self.base(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                num_inference_steps=n_steps,
+                denoising_end=high_noise_frac,
+                output_type="latent",
+            ).images
+            image = self.refiner(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                num_inference_steps=n_steps,
+                denoising_start=high_noise_frac,
+                image=image,
+            ).images[0]
 
-        import io
+            import io
 
-        byte_stream = io.BytesIO()
-        image.save(byte_stream, format="PNG")
-        image_bytes = byte_stream.getvalue()
+            byte_stream = io.BytesIO()
+            image.save(byte_stream, format="PNG")
+            image_bytes = byte_stream.getvalue()
+            t = time.time() - t0
+            times.append(t)
+
+        avg = sum(times) / len(times)
+        times_str = ", ".join(f"{t:.2f}" for t in times)
+        print(
+            f"{GPU} on {CLOUD} - Average inference time: {avg:.2f} seconds ({times_str})"
+        )
 
         return image_bytes
 
