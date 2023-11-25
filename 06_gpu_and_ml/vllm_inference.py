@@ -19,6 +19,7 @@
 # First we import the components we need from `modal`.
 
 import os
+import time
 
 from modal import Image, Secret, Stub, method
 
@@ -87,7 +88,12 @@ stub = Stub("example-vllm-inference", image=image)
 # on the GPU for each subsequent invocation of the function.
 #
 # The `vLLM` library allows the code to remain quite clean.
-@stub.cls(gpu="A100", secret=Secret.from_name("huggingface"))
+
+CLOUD = "gcp"
+GPU = "A100"
+
+
+@stub.cls(gpu=GPU, cloud=CLOUD, secret=Secret.from_name("huggingface"))
 class Model:
     def __enter__(self):
         from vllm import LLM
@@ -114,12 +120,22 @@ class Model:
             max_tokens=800,
             presence_penalty=1.15,
         )
-        result = self.llm.generate(prompts, sampling_params)
-        num_tokens = 0
-        for output in result:
-            num_tokens += len(output.outputs[0].token_ids)
-            print(output.prompt, output.outputs[0].text, "\n\n", sep="")
-        print(f"Generated {num_tokens} tokens")
+        times = []
+        for i in range(10):
+            t0 = time.time()
+            result = self.llm.generate(prompts, sampling_params)
+            num_tokens = 0
+            for output in result:
+                num_tokens += len(output.outputs[0].token_ids)
+            t = time.time() - t0
+            times.append(t)
+            print(t)
+
+        avg = sum(times) / len(times)
+        times_str = ", ".join(f"{t:.2f}" for t in times)
+        print(
+            f"{GPU} on {CLOUD} - Average inference time: {avg:.2f} seconds ({times_str})"
+        )
 
 
 # ## Run the model
