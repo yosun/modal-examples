@@ -15,9 +15,9 @@
 
 # ## Basic setup
 
+import io
 import time
 from pathlib import Path
-import io
 
 from modal import Image, Mount, Stub, asgi_app, method
 
@@ -71,7 +71,7 @@ CLOUD = "oci"
 GPU = "A100"
 
 
-@stub.cls(gpu="A100", container_idle_timeout=240)  # , cloud=CLOUD)
+@stub.cls(gpu=GPU, container_idle_timeout=240, cloud=CLOUD)
 class Model:
     def __enter__(self):
         import torch
@@ -108,31 +108,32 @@ class Model:
         io_times = []
         t0 = time.time()
         negative_prompt = "disfigured, ugly, deformed"
-        image = self.base(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            num_inference_steps=n_steps,
-            denoising_end=high_noise_frac,
-            output_type="latent",
-        ).images
-        image = self.refiner(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            num_inference_steps=n_steps,
-            denoising_start=high_noise_frac,
-            image=image,
-        ).images[0]
-
         for i in range(10):
+            image = self.base(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                num_inference_steps=n_steps,
+                denoising_end=high_noise_frac,
+                output_type="latent",
+            ).images
+            image = self.refiner(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                num_inference_steps=n_steps,
+                denoising_start=high_noise_frac,
+                image=image,
+            ).images[0]
+
+            t = time.time() - t0
+            times.append(t)
+
             t1 = time.time()
 
             byte_stream = io.BytesIO()
             image.save(byte_stream, format="PNG")
-            image_bytes = byte_stream.getvalue()
+            byte_stream.getvalue()
 
             io_times.append(time.time() - t1)
-            t = time.time() - t0
-            times.append(t)
 
         avg = sum(times) / len(times)
         times_str = ", ".join(f"{t:.2f}" for t in times)
