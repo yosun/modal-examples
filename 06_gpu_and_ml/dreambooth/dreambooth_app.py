@@ -41,7 +41,7 @@ from modal import (
 
 web_app = FastAPI()
 assets_path = Path(__file__).parent / "assets"
-stub = Stub(name="example-dreambooth-app")
+stub = Stub(name="camcorgi")
 
 # Commit in `diffusers` to checkout `train_dreambooth.py` from.
 GIT_SHA = "ed616bd8a8740927770eebe017aedb6204c6105f"
