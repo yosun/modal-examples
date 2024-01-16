@@ -90,10 +90,10 @@ class SharedConfig:
     """Configuration information shared across project components."""
 
     # The instance name is the "proper noun" we're teaching the model
-    instance_name: str = "Qwerty"
+    instance_name: str = "Cam"
     # That proper noun is usually a member of some class (person, bird),
     # and sharing that information with the model helps it generalize better.
-    class_name: str = "Golden Retriever"
+    class_name: str = "Pembrooke Welsch Corgi"
 
 
 @dataclass
